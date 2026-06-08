@@ -5,6 +5,9 @@ package-lock.json
 # Ignore recorded sessions
 recordings/
 
+# Ignore saved screen previews
+screenshots/
+
 # Ignore zip archives and logs
 *.zip
 *.log

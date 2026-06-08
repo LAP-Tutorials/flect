@@ -8,7 +8,18 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve the dashboard with caching disabled. This is a local control panel, so
+// always delivering fresh HTML/CSS/JS prevents the browser from showing a stale
+// UI (e.g. phantom download prompts or recording badges) after code changes.
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}));
 
 // Global state variables
 let scrcpyProcess = null;
@@ -72,7 +83,7 @@ function saveDeviceNameCache() {
 
 function normalizeHardwareId(value) {
   const cleaned = String(value || '').trim();
-  const invalid = new Set(['', 'unknown', 'null', 'n/a', 'undefined']);
+  const invalid = new Set([ '', 'unknown', 'null', 'n/a', 'undefined' ]);
   return invalid.has(cleaned.toLowerCase()) ? '' : cleaned;
 }
 
@@ -98,7 +109,7 @@ function buildDeviceDisplayName(manufacturer, model) {
 
 function extractHostFromAdbId(adbId) {
   const match = String(adbId || '').match(/^(\d+\.\d+\.\d+\.\d+):\d+$/);
-  return match ? match[1] : '';
+  return match ? match[ 1 ] : '';
 }
 
 // Get the path to Scrcpy binaries
@@ -131,11 +142,11 @@ async function resolveDeviceNameInfo(adbId) {
 }
 
 async function enrichDeviceWithName(device) {
-  const knownByAdb = deviceNameCache.byAdbId[device.id];
+  const knownByAdb = deviceNameCache.byAdbId[ device.id ];
   if (knownByAdb?.name) {
     const hostFromId = extractHostFromAdbId(device.id);
     if (hostFromId) {
-      deviceNameCache.byHost[hostFromId] = { name: knownByAdb.name };
+      deviceNameCache.byHost[ hostFromId ] = { name: knownByAdb.name };
       saveDeviceNameCache();
     }
     return { ...device, name: knownByAdb.name };
@@ -151,24 +162,24 @@ async function enrichDeviceWithName(device) {
     return { ...device, name: null };
   }
 
-  if (resolved.hardwareId && deviceNameCache.byHardwareId[resolved.hardwareId]?.name) {
-    const cached = deviceNameCache.byHardwareId[resolved.hardwareId].name;
-    deviceNameCache.byAdbId[device.id] = { name: cached, hardwareId: resolved.hardwareId };
+  if (resolved.hardwareId && deviceNameCache.byHardwareId[ resolved.hardwareId ]?.name) {
+    const cached = deviceNameCache.byHardwareId[ resolved.hardwareId ].name;
+    deviceNameCache.byAdbId[ device.id ] = { name: cached, hardwareId: resolved.hardwareId };
     const hostFromId = extractHostFromAdbId(device.id);
     if (hostFromId) {
-      deviceNameCache.byHost[hostFromId] = { name: cached };
+      deviceNameCache.byHost[ hostFromId ] = { name: cached };
     }
     saveDeviceNameCache();
     return { ...device, name: cached };
   }
 
-  deviceNameCache.byAdbId[device.id] = { name: resolved.name, hardwareId: resolved.hardwareId || '' };
+  deviceNameCache.byAdbId[ device.id ] = { name: resolved.name, hardwareId: resolved.hardwareId || '' };
   if (resolved.hardwareId) {
-    deviceNameCache.byHardwareId[resolved.hardwareId] = { name: resolved.name };
+    deviceNameCache.byHardwareId[ resolved.hardwareId ] = { name: resolved.name };
   }
   const hostFromId = extractHostFromAdbId(device.id);
   if (hostFromId) {
-    deviceNameCache.byHost[hostFromId] = { name: resolved.name };
+    deviceNameCache.byHost[ hostFromId ] = { name: resolved.name };
   }
   saveDeviceNameCache();
 
@@ -180,11 +191,11 @@ function parseDevices(stdout) {
   const lines = stdout.split('\n');
   const devices = [];
   for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
+    const line = lines[ i ].trim();
     if (line && !line.startsWith('*')) {
       const parts = line.split(/\s+/);
       if (parts.length >= 2) {
-        const adbId = parts[0];
+        const adbId = parts[ 0 ];
         // Hide mDNS TLS pseudo-devices from UI.
         // They are aliases, not the real connectable endpoint for mirroring.
         if (adbId.includes('._adb-tls-connect._tcp')) {
@@ -192,7 +203,7 @@ function parseDevices(stdout) {
         }
         devices.push({
           id: adbId,
-          status: parts[1]
+          status: parts[ 1 ]
         });
       }
     }
@@ -210,13 +221,13 @@ function parseMdnsServicesOutput(output) {
     const endpointMatch = line.match(/(\d+\.\d+\.\d+\.\d+):(\d+)/);
     if (!endpointMatch) continue;
 
-    const host = endpointMatch[1];
-    const port = endpointMatch[2];
+    const host = endpointMatch[ 1 ];
+    const port = endpointMatch[ 2 ];
     const endpoint = `${host}:${port}`;
     const lower = line.toLowerCase();
 
-    if (!byHost[host]) {
-      byHost[host] = {
+    if (!byHost[ host ]) {
+      byHost[ host ] = {
         host,
         connectEndpoint: null,
         pairingEndpoint: null
@@ -224,9 +235,9 @@ function parseMdnsServicesOutput(output) {
     }
 
     if (lower.includes('._adb-tls-connect._tcp')) {
-      byHost[host].connectEndpoint = endpoint;
+      byHost[ host ].connectEndpoint = endpoint;
     } else if (lower.includes('._adb-tls-pairing._tcp')) {
-      byHost[host].pairingEndpoint = endpoint;
+      byHost[ host ].pairingEndpoint = endpoint;
     }
   }
 
@@ -240,109 +251,109 @@ async function refreshAutoDiscovery() {
   autoDiscoveryState.scanning = true;
 
   try {
-  const paths = getPaths();
-  if (!paths.exists) {
-    autoDiscoveryState.lastScanAt = new Date().toISOString();
-    autoDiscoveryState.devices = [];
-    autoDiscoveryState.lastHint = 'Scrcpy/ADB binaries are missing.';
-    return;
-  }
-
-  await runShellCommand(`"${paths.adb}" start-server`, { timeout: 8000 });
-  const mdnsResult = await runShellCommand(`"${paths.adb}" mdns services`, { timeout: 12000 });
-  if (mdnsResult.err) {
-    autoDiscoveryState.lastScanAt = new Date().toISOString();
-    autoDiscoveryState.lastError = (mdnsResult.stderr || mdnsResult.err.message || 'mDNS discovery failed').trim();
-    autoDiscoveryState.lastHint = 'Make sure phone and PC are on same Wi-Fi and Wireless Debugging screen is open.';
-    return;
-  }
-
-  const mdnsHosts = parseMdnsServicesOutput(`${mdnsResult.stdout}\n${mdnsResult.stderr}`);
-  const devicesResult = await runShellCommand(`"${paths.adb}" devices`, { timeout: 8000 });
-  const connected = parseDevices(devicesResult.stdout || '').filter((d) => d.status === 'device');
-  const connectedSet = new Set(connected.map((d) => d.id));
-
-  const discoveryEntries = [];
-  const now = Date.now();
-
-  for (const hostEntry of mdnsHosts) {
-    const host = hostEntry.host;
-    const connectEndpoint = hostEntry.connectEndpoint;
-    const pairingEndpoint = hostEntry.pairingEndpoint;
-    const cachedName = deviceNameCache.byHost[host]?.name || null;
-    const displayName = cachedName || 'Unknown Android device';
-
-    let status = 'needs_pairing';
-    let detail = 'Pairing is required for first-time devices.';
-
-    if (connectEndpoint) {
-      let isConnected = connectedSet.has(connectEndpoint);
-      let authRequired = false;
-      if (!isConnected) {
-        const lastAttempt = autoDiscoveryState.lastConnectAttemptAt[connectEndpoint] || 0;
-        if (now - lastAttempt > 15000) {
-          autoDiscoveryState.lastConnectAttemptAt[connectEndpoint] = now;
-          const connectResult = await runShellCommand(`"${paths.adb}" connect ${connectEndpoint}`, { timeout: 8000 });
-          const connectOutput = `${connectResult.stdout}\n${connectResult.stderr}`.toLowerCase();
-          if (connectOutput.includes('connected to') || connectOutput.includes('already connected')) {
-            isConnected = true;
-            connectedSet.add(connectEndpoint);
-            if (!autoDiscoveryState.announcedConnectedEndpoints[connectEndpoint]) {
-              autoDiscoveryState.announcedConnectedEndpoints[connectEndpoint] = true;
-              logMessage(`Auto-discovery connected to ${connectEndpoint}.`);
-            }
-          } else if (
-            connectOutput.includes('failed to authenticate') ||
-            connectOutput.includes('authentication') ||
-            connectOutput.includes('pair')
-          ) {
-            authRequired = true;
-          }
-        }
-      }
-
-      if (isConnected) {
-        status = 'paired_connected';
-        detail = 'Already paired and ready to mirror.';
-      } else if (authRequired) {
-        status = 'waiting_pairing_endpoint';
-        detail = 'Pairing required. If scan still shows no pairing endpoint, enter IP/Port from the phone manually.';
-      } else {
-        status = 'discovered_not_connected';
-        detail = 'Discovered but not connected yet. Will keep retrying auto-connect.';
-      }
-    } else if (pairingEndpoint) {
-      detail = 'Pairing required: use this pairing endpoint from your phone screen.';
-      if (!autoDiscoveryState.announcedPairingHosts[host]) {
-        autoDiscoveryState.announcedPairingHosts[host] = true;
-        logMessage(`Discovered new device at ${host}. Pairing is required before auto-connect.`);
-      }
-    } else {
-      status = 'waiting_pairing_endpoint';
-      detail = 'Device discovered, but pairing endpoint is hidden. Use IP/Port shown on phone if scan does not update.';
+    const paths = getPaths();
+    if (!paths.exists) {
+      autoDiscoveryState.lastScanAt = new Date().toISOString();
+      autoDiscoveryState.devices = [];
+      autoDiscoveryState.lastHint = 'Scrcpy/ADB binaries are missing.';
+      return;
     }
 
-    discoveryEntries.push({
-      host,
-      name: displayName,
-      connectEndpoint: connectEndpoint || null,
-      pairingEndpoint: pairingEndpoint || null,
-      status,
-      detail
+    await runShellCommand(`"${paths.adb}" start-server`, { timeout: 8000 });
+    const mdnsResult = await runShellCommand(`"${paths.adb}" mdns services`, { timeout: 12000 });
+    if (mdnsResult.err) {
+      autoDiscoveryState.lastScanAt = new Date().toISOString();
+      autoDiscoveryState.lastError = (mdnsResult.stderr || mdnsResult.err.message || 'mDNS discovery failed').trim();
+      autoDiscoveryState.lastHint = 'Make sure phone and PC are on same Wi-Fi and Wireless Debugging screen is open.';
+      return;
+    }
+
+    const mdnsHosts = parseMdnsServicesOutput(`${mdnsResult.stdout}\n${mdnsResult.stderr}`);
+    const devicesResult = await runShellCommand(`"${paths.adb}" devices`, { timeout: 8000 });
+    const connected = parseDevices(devicesResult.stdout || '').filter((d) => d.status === 'device');
+    const connectedSet = new Set(connected.map((d) => d.id));
+
+    const discoveryEntries = [];
+    const now = Date.now();
+
+    for (const hostEntry of mdnsHosts) {
+      const host = hostEntry.host;
+      const connectEndpoint = hostEntry.connectEndpoint;
+      const pairingEndpoint = hostEntry.pairingEndpoint;
+      const cachedName = deviceNameCache.byHost[ host ]?.name || null;
+      const displayName = cachedName || 'Unknown Android device';
+
+      let status = 'needs_pairing';
+      let detail = 'Pairing is required for first-time devices.';
+
+      if (connectEndpoint) {
+        let isConnected = connectedSet.has(connectEndpoint);
+        let authRequired = false;
+        if (!isConnected) {
+          const lastAttempt = autoDiscoveryState.lastConnectAttemptAt[ connectEndpoint ] || 0;
+          if (now - lastAttempt > 15000) {
+            autoDiscoveryState.lastConnectAttemptAt[ connectEndpoint ] = now;
+            const connectResult = await runShellCommand(`"${paths.adb}" connect ${connectEndpoint}`, { timeout: 8000 });
+            const connectOutput = `${connectResult.stdout}\n${connectResult.stderr}`.toLowerCase();
+            if (connectOutput.includes('connected to') || connectOutput.includes('already connected')) {
+              isConnected = true;
+              connectedSet.add(connectEndpoint);
+              if (!autoDiscoveryState.announcedConnectedEndpoints[ connectEndpoint ]) {
+                autoDiscoveryState.announcedConnectedEndpoints[ connectEndpoint ] = true;
+                logMessage(`Auto-discovery connected to ${connectEndpoint}.`);
+              }
+            } else if (
+              connectOutput.includes('failed to authenticate') ||
+              connectOutput.includes('authentication') ||
+              connectOutput.includes('pair')
+            ) {
+              authRequired = true;
+            }
+          }
+        }
+
+        if (isConnected) {
+          status = 'paired_connected';
+          detail = 'Already paired and ready to mirror.';
+        } else if (authRequired) {
+          status = 'waiting_pairing_endpoint';
+          detail = 'Pairing required. If scan still shows no pairing endpoint, enter IP/Port from the phone manually.';
+        } else {
+          status = 'discovered_not_connected';
+          detail = 'Discovered but not connected yet. Will keep retrying auto-connect.';
+        }
+      } else if (pairingEndpoint) {
+        detail = 'Pairing required: use this pairing endpoint from your phone screen.';
+        if (!autoDiscoveryState.announcedPairingHosts[ host ]) {
+          autoDiscoveryState.announcedPairingHosts[ host ] = true;
+          logMessage(`Discovered new device at ${host}. Pairing is required before auto-connect.`);
+        }
+      } else {
+        status = 'waiting_pairing_endpoint';
+        detail = 'Device discovered, but pairing endpoint is hidden. Use IP/Port shown on phone if scan does not update.';
+      }
+
+      discoveryEntries.push({
+        host,
+        name: displayName,
+        connectEndpoint: connectEndpoint || null,
+        pairingEndpoint: pairingEndpoint || null,
+        status,
+        detail
+      });
+    }
+
+    discoveryEntries.sort((a, b) => {
+      const rank = (entry) => (entry.status === 'paired_connected' ? 0 : entry.status === 'discovered_not_connected' ? 1 : 2);
+      return rank(a) - rank(b);
     });
-  }
 
-  discoveryEntries.sort((a, b) => {
-    const rank = (entry) => (entry.status === 'paired_connected' ? 0 : entry.status === 'discovered_not_connected' ? 1 : 2);
-    return rank(a) - rank(b);
-  });
-
-  autoDiscoveryState.lastScanAt = new Date().toISOString();
-  autoDiscoveryState.devices = discoveryEntries;
-  autoDiscoveryState.lastError = null;
-  autoDiscoveryState.lastHint = discoveryEntries.length
-    ? 'Auto-discovery is active.'
-    : 'No devices found yet. Open Wireless Debugging on your phone, then tap Scan.';
+    autoDiscoveryState.lastScanAt = new Date().toISOString();
+    autoDiscoveryState.devices = discoveryEntries;
+    autoDiscoveryState.lastError = null;
+    autoDiscoveryState.lastHint = discoveryEntries.length
+      ? 'Auto-discovery is active.'
+      : 'No devices found yet. Open Wireless Debugging on your phone, then tap Scan.';
   } finally {
     autoDiscoveryState.scanning = false;
   }
@@ -451,13 +462,13 @@ app.get('/api/events', (req, res) => {
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive'
   });
-  
+
   res.write('\n');
   eventClients.push(res);
-  
+
   // Send current log history to newly connected client
   res.write(`event: log-history\ndata: ${JSON.stringify({ logs: logBuffer })}\n\n`);
-  
+
   req.on('close', () => {
     eventClients = eventClients.filter(client => client !== res);
   });
@@ -468,7 +479,26 @@ app.get('/api/status', async (req, res) => {
   const paths = getPaths();
   let adbDevices = [];
   let adbRunning = false;
-  
+
+  // Reconcile tracked mirroring/recording state with reality. If we believe a
+  // scrcpy session is active but the process is actually gone (window closed,
+  // crashed, or finished), clear the stale state so the UI does not show a
+  // phantom "mirroring"/"recording" badge on a device that is not being shared.
+  // A short grace window avoids false negatives right after launch, since
+  // scrcpy.exe can take a moment to appear in the task list.
+  if (scrcpyProcess && Date.now() - (scrcpyProcess.startedAt || 0) > 8000) {
+    const stillRunning = await isScrcpyRunning();
+    if (!stillRunning) {
+      const staleDeviceId = scrcpyProcess.deviceId || null;
+      if (scrcpyProcess._pollInterval) {
+        clearInterval(scrcpyProcess._pollInterval);
+      }
+      scrcpyProcess = null;
+      logMessage('Detected scrcpy is no longer running; cleared stale mirroring state.');
+      broadcastEvent('mirroring-ended', { code: 0, deviceId: staleDeviceId });
+    }
+  }
+
   if (paths.exists) {
     try {
       // Test adb connectivity
@@ -484,7 +514,7 @@ app.get('/api/status', async (req, res) => {
       adbRunning = false;
     }
   }
-  
+
   res.json({
     scrcpyInstalled: paths.exists,
     mirroringActive: scrcpyProcess !== null,
@@ -519,11 +549,11 @@ app.post('/api/download', (req, res) => {
 
   const zipUrl = 'https://github.com/Genymobile/scrcpy/releases/download/v4.0/scrcpy-win64-v4.0.zip';
   const zipPath = path.join(__dirname, 'scrcpy.zip');
-  
+
   logMessage(`Starting download of Scrcpy v4.0 from ${zipUrl}...`);
-  
+
   const file = fs.createWriteStream(zipPath);
-  
+
   // Follow redirects if necessary
   const downloadFile = (url) => {
     https.get(url, (response) => {
@@ -532,7 +562,7 @@ app.post('/api/download', (req, res) => {
         downloadFile(response.headers.location);
         return;
       }
-      
+
       if (response.statusCode !== 200) {
         logMessage(`Download failed: HTTP Status ${response.statusCode}`);
         downloadProgress.active = false;
@@ -540,49 +570,49 @@ app.post('/api/download', (req, res) => {
         return res.status(500).json({ error: `Download failed: HTTP ${response.statusCode}` });
       }
 
-      const totalLength = parseInt(response.headers['content-length'], 10);
+      const totalLength = parseInt(response.headers[ 'content-length' ], 10);
       downloadProgress.total = totalLength;
-      
+
       let downloadedLength = 0;
-      
+
       response.on('data', (chunk) => {
         downloadedLength += chunk.length;
         const pct = totalLength ? Math.round((downloadedLength / totalLength) * 100) : 0;
         downloadProgress.progress = pct;
         downloadProgress.downloaded = downloadedLength;
-        
+
         broadcastEvent('download-progress', downloadProgress);
       });
-      
+
       response.pipe(file);
-      
+
       file.on('finish', () => {
         file.close();
         logMessage('Download completed. Extracting archive...');
-        
+
         downloadProgress.progress = 100;
         broadcastEvent('download-progress', downloadProgress);
-        
+
         // Extract archive using PowerShell
         const psCommand = `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${__dirname}' -Force"`;
         exec(psCommand, (err, stdout, stderr) => {
           // Cleanup ZIP file
-          fs.unlink(zipPath, () => {});
-          
+          fs.unlink(zipPath, () => { });
+
           if (err) {
             logMessage(`Extraction failed: ${stderr || err.message}`);
             downloadProgress.active = false;
             broadcastEvent('status-change', { downloadState: downloadProgress });
             return;
           }
-          
+
           logMessage('Extraction completed. Organizing files...');
-          
+
           // Locate the extracted folder and rename to scrcpy-win64
           try {
             const files = fs.readdirSync(__dirname);
             const extractedDir = files.find(f => f.startsWith('scrcpy-win64-') && fs.statSync(path.join(__dirname, f)).isDirectory());
-            
+
             if (extractedDir) {
               const targetPath = path.join(__dirname, 'scrcpy-win64');
               if (fs.existsSync(targetPath)) {
@@ -596,14 +626,14 @@ app.post('/api/download', (req, res) => {
           } catch (renameErr) {
             logMessage(`Error organizing directory: ${renameErr.message}`);
           }
-          
+
           downloadProgress.active = false;
           broadcastEvent('status-change', { downloadState: downloadProgress });
           broadcastEvent('installed', { success: true });
         });
       });
     }).on('error', (err) => {
-      fs.unlink(zipPath, () => {});
+      fs.unlink(zipPath, () => { });
       logMessage(`Network Error: ${err.message}`);
       downloadProgress.active = false;
       broadcastEvent('status-change', { downloadState: downloadProgress });
@@ -627,26 +657,26 @@ app.post('/api/kill-server', async (req, res) => {
 // ADB PAIR (Wireless Debugging Android 11+)
 app.post('/api/pair', (req, res) => {
   const { ip, port, code } = req.body;
-  
+
   if (!ip || !port || !code) {
     return res.status(400).json({ error: 'IP, Port, and Pairing Code are required.' });
   }
-  
+
   const paths = getPaths();
   if (!paths.exists) {
     return res.status(400).json({ error: 'Scrcpy not found. Please install first.' });
   }
-  
+
   logMessage(`Attempting to pair with ${ip}:${port} using code ${code}...`);
-  
+
   // Spawn adb pair as an interactive process
-  const adbProcess = spawn(paths.adb, ['pair', `${ip}:${port}`], { cwd: paths.dir });
-  
+  const adbProcess = spawn(paths.adb, [ 'pair', `${ip}:${port}` ], { cwd: paths.dir });
+
   let output = '';
   let errorOutput = '';
   let completed = false;
   let codeSent = false;
-  
+
   // Send the pairing code immediately to stdin.
   // In Node.js, stdin writes are buffered by the OS. As soon as the spawned adb process 
   // tries to read from standard input, it will immediately consume the pairing code 
@@ -658,7 +688,7 @@ app.post('/api/pair', (req, res) => {
   } catch (stdinErr) {
     logMessage(`Error writing code to stdin immediately: ${stdinErr.message}`);
   }
-  
+
   // Set safety timeout of 20 seconds
   const timeout = setTimeout(() => {
     if (!completed) {
@@ -673,7 +703,7 @@ app.post('/api/pair', (req, res) => {
     const str = data.toString();
     output += str;
     logMessage(`adb pair: ${str.trim()}`);
-    
+
     // Fallback: feed pairing code if prompted and we haven't sent it yet
     if (str.includes('Enter pairing code') && !codeSent && !completed) {
       logMessage('Feeding pairing code via fallback...');
@@ -696,7 +726,7 @@ app.post('/api/pair', (req, res) => {
     if (completed) return;
     completed = true;
     clearTimeout(timeout);
-    
+
     if (code === 0 || output.includes('Successfully paired') || output.includes('paired to')) {
       logMessage(`Successfully paired to ${ip}:${port}!`);
       res.json({ success: true, message: output || 'Successfully paired' });
@@ -713,7 +743,7 @@ app.post('/api/connect', async (req, res) => {
   if (!ip || !port) {
     return res.status(400).json({ error: 'IP and Port are required.' });
   }
-  
+
   try {
     const stdout = await runAdbCommand(`connect ${ip}:${port}`);
     if (stdout.includes('connected to') || stdout.includes('already connected')) {
@@ -768,17 +798,17 @@ app.post('/api/start-scrcpy', async (req, res) => {
   const settings = req.body || {};
   const paths = getPaths();
   const isIpPortTarget = (value) => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(String(value || ''));
-  
+
   if (!paths.exists) {
     return res.status(400).json({ error: 'Scrcpy not found. Please install first.' });
   }
-  
+
   if (scrcpyProcess) {
     return res.json({ success: true, message: 'Mirroring is already active.' });
   }
-  
+
   let target = settings.serial;
-  
+
   // Scrcpy often crashes if targeted directly at the mDNS TLS device name instead of its IP port.
   // Auto-resolve to the IP:port target if the user accidentally selected the TLS one.
   if (target && target.includes('._adb-tls-connect._tcp')) {
@@ -788,7 +818,7 @@ app.post('/api/start-scrcpy', async (req, res) => {
       for (const line of lines) {
         const match = line.match(/^(\d+\.\d+\.\d+\.\d+:\d+)\s+device/);
         if (match) {
-          target = match[1];
+          target = match[ 1 ];
           logMessage(`Auto-resolved TLS target to ${target}`);
           break;
         }
@@ -807,7 +837,7 @@ app.post('/api/start-scrcpy', async (req, res) => {
       for (const line of lines) {
         const match = line.match(/^(\d+\.\d+\.\d+\.\d+:\d+)\s+device/);
         if (match) {
-          target = match[1];
+          target = match[ 1 ];
           logMessage(`TCP/IP preference selected target ${target}`);
           break;
         }
@@ -816,11 +846,11 @@ app.post('/api/start-scrcpy', async (req, res) => {
       logMessage(`Failed to apply TCP/IP preference: ${e.message}`);
     }
   }
-  
+
   // Let scrcpy choose the best renderer automatically.
   // For some Windows setups, forcing OpenGL can result in a non-visible viewer window.
   const args = [];
-  
+
   // Device Selection
   if (target) {
     args.push('-s');
@@ -830,7 +860,7 @@ app.post('/api/start-scrcpy', async (req, res) => {
   } else if (settings.selectUsb) {
     args.push('-d');
   }
-  
+
   // Visuals & Resolution
   if (settings.maxSize) {
     args.push('--max-size');
@@ -844,14 +874,14 @@ app.post('/api/start-scrcpy', async (req, res) => {
     args.push('--max-fps');
     args.push(String(settings.fps));
   }
-  
+
   // Control Preferences
   if (settings.stayAwake) args.push('--stay-awake');
   if (settings.alwaysOnTop) args.push('--always-on-top');
   if (settings.noAudio) args.push('--no-audio');
   if (settings.turnScreenOff) args.push('--turn-screen-off');
   if (settings.showTouches) args.push('--show-touches');
-  
+
   let recordingFile = null;
   if (settings.record) {
     // Save recording in a local recordings directory
@@ -865,9 +895,9 @@ app.post('/api/start-scrcpy', async (req, res) => {
     args.push(recordingFile);
     logMessage(`Recording enabled. File will be saved to: recordings/${filename}`);
   }
-  
+
   logMessage(`Launching Scrcpy with arguments: ${args.join(' ')}`);
-  
+
   // Clean up previous scrcpy instance before launching a new one.
   const preLaunchStop = await stopScrcpyProcessGracefully({ allowForceFallback: true });
   if (preLaunchStop.mode === 'force') {
@@ -875,7 +905,7 @@ app.post('/api/start-scrcpy', async (req, res) => {
   } else if (preLaunchStop.mode === 'error') {
     logMessage(`Pre-launch cleanup warning: ${preLaunchStop.output}`);
   }
-  
+
   // Write a batch file that launches scrcpy directly with pause-on-exit if error
   const batContent = [
     '@echo off',
@@ -883,10 +913,10 @@ app.post('/api/start-scrcpy', async (req, res) => {
     `scrcpy.exe --pause-on-exit=if-error ${args.join(' ')}`,
     ''
   ].join('\r\n');
-  
+
   const batPath = path.join(paths.dir, '_flect_launch.bat');
   fs.writeFileSync(batPath, batContent);
-  
+
   // Launch via explorer.exe to force execution in the interactive user desktop.
   // On Windows this can return a non-zero exit code even when the .bat starts successfully.
   exec(`explorer.exe "${batPath}"`, { cwd: paths.dir }, (err) => {
@@ -904,10 +934,10 @@ app.post('/api/start-scrcpy', async (req, res) => {
       logMessage('Scrcpy process launched via explorer.exe directly.');
     }
   });
-  
+
   // Track active mirroring state and device so UI can show the actual mirrored target.
-  scrcpyProcess = { active: true, deviceId: target || null, recordingEnabled: !!settings.record, recordingFile };
-  
+  scrcpyProcess = { active: true, deviceId: target || null, recordingEnabled: !!settings.record, recordingFile, startedAt: Date.now() };
+
   // Poll for scrcpy.exe process to detect when user closes the mirroring window
   setTimeout(() => {
     const pollInterval = setInterval(() => {
@@ -923,12 +953,12 @@ app.post('/api/start-scrcpy', async (req, res) => {
         }
       });
     }, 3000);
-    
+
     if (scrcpyProcess) {
       scrcpyProcess._pollInterval = pollInterval;
     }
   }, 5000);
-  
+
   broadcastEvent('mirroring-started', { deviceId: target || null, recordingEnabled: !!settings.record });
   res.json({ success: true, message: 'Mirroring launched successfully' });
 });
@@ -982,6 +1012,60 @@ app.post('/api/stop-scrcpy', async (req, res) => {
   return res.json({ success: true, message: 'Mirroring stopped successfully.' });
 });
 
+// DEVICE SCREEN PREVIEW (still screenshot, not live)
+app.get('/api/preview', (req, res) => {
+  const paths = getPaths();
+  if (!paths.exists) {
+    return res.status(400).json({ error: 'Scrcpy / ADB binaries not found.' });
+  }
+
+  const serial = (req.query.serial || '').trim();
+  if (!serial) {
+    return res.status(400).json({ error: 'A device serial is required.' });
+  }
+
+  // `exec-out` streams raw bytes, avoiding the newline translation that
+  // corrupts PNG output when using `adb shell screencap -p` on Windows.
+  const child = spawn(paths.adb, ['-s', serial, 'exec-out', 'screencap', '-p']);
+  const chunks = [];
+  let errOutput = '';
+
+  child.stdout.on('data', (d) => chunks.push(d));
+  child.stderr.on('data', (d) => { errOutput += d.toString(); });
+
+  child.on('error', (e) => {
+    if (!res.headersSent) {
+      res.status(500).json({ error: e.message || 'Failed to run screencap.' });
+    }
+  });
+
+  child.on('close', (code) => {
+    const buf = Buffer.concat(chunks);
+    if (code !== 0 || buf.length === 0) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: errOutput.trim() || `screencap failed (exit code ${code}).` });
+      }
+      return;
+    }
+
+    // Auto-save every capture to the screenshots/ folder.
+    try {
+      const shotsDir = path.join(__dirname, 'screenshots');
+      if (!fs.existsSync(shotsDir)) { fs.mkdirSync(shotsDir); }
+      const safeSerial = serial.replace(/[^a-zA-Z0-9]+/g, '-');
+      const filename = `screenshot_${safeSerial}_${Date.now()}.png`;
+      fs.writeFileSync(path.join(shotsDir, filename), buf);
+      logMessage(`Saved screen preview to: screenshots/${filename}`);
+    } catch (e) {
+      logMessage(`Warning: failed to save screen preview: ${e.message}`);
+    }
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(buf);
+  });
+});
+
 // LIVE SETTING: TURN SCREEN OFF / WAKE SCREEN DURING ACTIVE MIRRORING
 app.post('/api/live/turn-screen', async (req, res) => {
   const { enabled } = req.body || {};
@@ -1017,7 +1101,7 @@ app.listen(PORT, () => {
   console.log(`Server is running at http://localhost:${PORT}`);
   refreshAutoDiscovery();
   setInterval(refreshAutoDiscovery, 7000);
-  
+
   // Auto-open browser in Windows
   const openUrl = `http://localhost:${PORT}`;
   exec(`start ${openUrl}`, (err) => {

@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const legacyPort = document.getElementById('legacyPort');
   const btnConnectLegacy = document.getElementById('btnConnectLegacy');
   const btnEnableTcpip = document.getElementById('btnEnableTcpip');
-  
+
   // DOM Elements - Devices & Control
   const adbDevicesList = document.getElementById('adbDevicesList');
   const devicesCount = document.getElementById('devicesCount');
@@ -40,6 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnStartMirroring = document.getElementById('btnStartMirroring');
   const btnStopMirroring = document.getElementById('btnStopMirroring');
   const btnStopRecording = document.getElementById('btnStopRecording');
+  const previewImage = document.getElementById('previewImage');
+  const btnPreview = document.getElementById('btnPreview');
   const recentDevicesList = document.getElementById('recentDevicesList');
 
   // DOM Elements - Settings
@@ -78,6 +80,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let liveUpdatePending = false;
   let pendingLiveReason = '';
   let liveApplyTimer = null;
+  let previewedDeviceId = null;
+  let previewAutoAttemptedId = null;
+  let previewObjectUrl = null;
 
   // 0. TOAST NOTIFICATION SYSTEM
   const toastContainer = document.getElementById('toastContainer');
@@ -91,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
     toast.innerHTML = `
-      <div class="toast-icon">${toastIcons[type] || 'i'}</div>
+      <div class="toast-icon">${toastIcons[ type ] || 'i'}</div>
       <div class="toast-content">
         <div class="toast-title"></div>
         <div class="toast-message"></div>
@@ -99,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <button class="toast-close" aria-label="Dismiss">&times;</button>
       <div class="toast-progress"></div>
     `;
-    toast.querySelector('.toast-title').textContent = title || toastTitles[type] || 'Notice';
+    toast.querySelector('.toast-title').textContent = title || toastTitles[ type ] || 'Notice';
     toast.querySelector('.toast-message').textContent = message;
     const progress = toast.querySelector('.toast-progress');
 
@@ -161,12 +166,12 @@ document.addEventListener('DOMContentLoaded', () => {
   function applyPreset() {
     const selected = qualityPreset.value;
     const customGroups = document.querySelectorAll('.custom-option-group');
-    
+
     if (selected === 'custom') {
       customGroups.forEach(g => g.classList.remove('disabled'));
     } else {
       customGroups.forEach(g => g.classList.add('disabled'));
-      const values = presets[selected];
+      const values = presets[ selected ];
       if (values) {
         maxSize.value = values.maxSize;
         bitRate.value = values.bitRate;
@@ -183,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const res = await fetch('/api/status');
       const status = await res.json();
-      
+
       appState.scrcpyInstalled = status.scrcpyInstalled;
       appState.mirroringActive = status.mirroringActive;
       appState.mirroredDeviceId = status.mirroredDeviceId || null;
@@ -192,16 +197,25 @@ document.addEventListener('DOMContentLoaded', () => {
       appState.adbRunning = status.adbRunning;
       appState.devices = status.devices;
 
-      // Update Scrcpy Install State UI
+      // Update Scrcpy Install State UI. When binaries are installed the
+      // downloader must always stay hidden, regardless of any leftover/stuck
+      // download state, so it can never reappear once scrcpy is present.
       if (status.scrcpyInstalled) {
         setIndicatorState(statusScrcpy, 'active', 'Installed');
         downloaderSection.classList.add('hidden');
+        downloadProgressBar.classList.add('hidden');
         connectionWizardCard.classList.remove('hidden');
       } else {
         setIndicatorState(statusScrcpy, 'inactive', 'Missing');
         connectionWizardCard.classList.add('hidden');
-        if (!status.downloadState.active) {
-          downloaderSection.classList.remove('hidden');
+        downloaderSection.classList.remove('hidden');
+        if (status.downloadState.active) {
+          btnDownloadScrcpy.classList.add('hidden');
+          downloadProgressBar.classList.remove('hidden');
+          updateDownloadProgressUI(status.downloadState);
+        } else {
+          btnDownloadScrcpy.classList.remove('hidden');
+          downloadProgressBar.classList.add('hidden');
         }
       }
 
@@ -217,6 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setIndicatorState(statusMirroring, 'active', 'Active');
         btnStartMirroring.disabled = true;
         btnStopMirroring.classList.remove('hidden');
+        mirrorControlPanel.classList.add('mirroring-active');
         if (status.recordingActive) {
           btnStopRecording.classList.remove('hidden');
         } else {
@@ -227,19 +242,12 @@ document.addEventListener('DOMContentLoaded', () => {
         btnStartMirroring.disabled = false;
         btnStopMirroring.classList.add('hidden');
         btnStopRecording.classList.add('hidden');
+        mirrorControlPanel.classList.remove('mirroring-active');
       }
 
       // Render Devices list
       renderDevicesList(status.devices);
       renderDiscoveryList();
-      
-      // Update Download progress if active
-      if (status.downloadState.active) {
-        downloaderSection.classList.remove('hidden');
-        btnDownloadScrcpy.classList.add('hidden');
-        downloadProgressBar.classList.remove('hidden');
-        updateDownloadProgressUI(status.downloadState);
-      }
 
     } catch (e) {
       addTerminalLog(`Error fetching system status: ${e.message}`, 'error');
@@ -256,7 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderDevicesList(devices) {
     devicesCount.innerText = `${devices.length} Active`;
-    
+
     if (devices.length === 0) {
       adbDevicesList.innerHTML = `<p class="empty-state">No devices currently connected to ADB.</p>`;
       mirrorControlPanel.classList.add('hidden');
@@ -267,7 +275,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Auto-select first device if currently selected device is not connected or none is selected
     const stillConnected = devices.some(d => d.id === appState.selectedDeviceId);
     if (!stillConnected || !appState.selectedDeviceId) {
-      appState.selectedDeviceId = devices[0].id;
+      appState.selectedDeviceId = devices[ 0 ].id;
     }
 
     let listHtml = '';
@@ -276,13 +284,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const isMirroring = appState.mirroringActive && appState.mirroredDeviceId === device.id;
       const isRecording = isMirroring && appState.recordingActive;
       const displayName = device.name || device.id;
-      
+
       const selectClass = isSelected ? 'selected' : '';
       const connectionType = device.id.includes('.') ? '📶 Wireless' : '🔌 USB';
       const mirroringBadge = isMirroring ? '<span class="badge">🎬 Mirroring</span>' : '';
       const recordingBadge = isRecording ? '<span class="badge">🔴 Recording</span>' : '';
       const statusDetails = device.name ? `${device.status.toUpperCase()} • ${device.id}` : device.status.toUpperCase();
-      
+
       listHtml += `
         <div class="adb-device-item ${selectClass}" data-id="${device.id}">
           <div class="device-left">
@@ -302,7 +310,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     adbDevicesList.innerHTML = listHtml;
-    
+
     // Add Click listeners to device items
     document.querySelectorAll('.adb-device-item').forEach(item => {
       item.addEventListener('click', () => {
@@ -330,6 +338,12 @@ document.addEventListener('DOMContentLoaded', () => {
     btnDiscoveryScan.disabled = !!discovery.scanning;
     btnDiscoveryScan.innerText = discovery.scanning ? 'Scanning...' : 'Scan';
 
+    if (discovery.scanning) {
+      connectionWizardCard.classList.add('scanning');
+    } else {
+      connectionWizardCard.classList.remove('scanning');
+    }
+
     if (!items.length) {
       const hint = discovery.lastError
         ? `Discovery issue: ${discovery.lastError}`
@@ -355,14 +369,14 @@ document.addEventListener('DOMContentLoaded', () => {
           ? 'Found (auto-connecting)'
           : item.status === 'waiting_pairing_endpoint'
             ? 'Waiting for pairing endpoint'
-          : 'Pairing required';
+            : 'Pairing required';
       const badge = item.status === 'paired_connected'
         ? '✅ Ready'
         : item.status === 'discovered_not_connected'
           ? '🔄 Connecting'
           : item.status === 'waiting_pairing_endpoint'
             ? '⏳ Waiting'
-          : '🔐 Pair';
+            : '🔐 Pair';
 
       html += `
         <div class="recent-device-item discovery-item"
@@ -396,7 +410,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (modernTabBtn) modernTabBtn.click();
 
         if (pairingEndpoint) {
-          const [pairHost, pairPortValue] = pairingEndpoint.split(':');
+          const [ pairHost, pairPortValue ] = pairingEndpoint.split(':');
           pairIp.value = pairHost || pairIp.value;
           pairPort.value = pairPortValue || pairPort.value;
         } else if (itemEl.dataset.host) {
@@ -415,7 +429,7 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        const [connectHost, connectPortValue] = connectEndpoint.split(':');
+        const [ connectHost, connectPortValue ] = connectEndpoint.split(':');
         connectIp.value = connectHost || connectIp.value;
         connectPort.value = connectPortValue || connectPort.value;
 
@@ -436,7 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const firstNeedsPairing = items.find(i => i.status === 'needs_pairing' && i.pairingEndpoint);
     if (firstNeedsPairing) {
-      const [host, port] = firstNeedsPairing.pairingEndpoint.split(':');
+      const [ host, port ] = firstNeedsPairing.pairingEndpoint.split(':');
       pairIp.value = host || pairIp.value;
       pairPort.value = port || pairPort.value;
     }
@@ -445,16 +459,77 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateMirrorControlBar() {
     if (appState.selectedDeviceId) {
       mirrorControlPanel.classList.remove('hidden');
-      if (appState.mirroringActive && appState.mirroredDeviceId) {
+
+      // The selected device is only "the one being mirrored" when its id matches
+      // the active mirrored device reported by the server.
+      const selectedIsMirrored = appState.mirroringActive
+        && !!appState.mirroredDeviceId
+        && appState.mirroredDeviceId === appState.selectedDeviceId;
+
+      if (selectedIsMirrored) {
         const mirroredName = getDeviceDisplayNameById(appState.mirroredDeviceId);
         selectedDeviceName.innerText = `${mirroredName} (currently mirroring)`;
       } else {
         selectedDeviceName.innerText = getDeviceDisplayNameById(appState.selectedDeviceId);
       }
-      recordingIndicator.classList.toggle('hidden', !appState.recordingActive);
+
+      // Only show the recording badge for the device that is actually being
+      // recorded — never on a different/idle device.
+      recordingIndicator.classList.toggle('hidden', !(selectedIsMirrored && appState.recordingActive));
+
+      // Keep the screen preview in sync with the selected device. Clear a stale
+      // preview from a different device, and auto-capture once per new device.
+      if (previewedDeviceId && previewedDeviceId !== appState.selectedDeviceId) {
+        clearPreview();
+      }
+      if (previewAutoAttemptedId !== appState.selectedDeviceId) {
+        previewAutoAttemptedId = appState.selectedDeviceId;
+        capturePreview(appState.selectedDeviceId);
+      }
     } else {
       mirrorControlPanel.classList.add('hidden');
       recordingIndicator.classList.add('hidden');
+      previewAutoAttemptedId = null;
+      clearPreview();
+    }
+  }
+
+  function clearPreview() {
+    if (previewObjectUrl) {
+      URL.revokeObjectURL(previewObjectUrl);
+      previewObjectUrl = null;
+    }
+    previewedDeviceId = null;
+    previewImage.classList.add('hidden');
+    previewImage.removeAttribute('src');
+  }
+
+  async function capturePreview(deviceId) {
+    const serial = deviceId || appState.selectedDeviceId;
+    if (!serial) return;
+
+    btnPreview.classList.add('loading');
+    try {
+      const res = await fetch(`/api/preview?serial=${encodeURIComponent(serial)}`);
+      if (!res.ok) {
+        let msg = `Preview failed (HTTP ${res.status}).`;
+        try { const j = await res.json(); if (j.error) msg = j.error; } catch (_) { /* non-JSON */ }
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+
+      // Ignore the result if the user switched devices while we were fetching.
+      if (serial !== appState.selectedDeviceId) return;
+
+      if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+      previewObjectUrl = URL.createObjectURL(blob);
+      previewImage.src = previewObjectUrl;
+      previewImage.classList.remove('hidden');
+      previewedDeviceId = serial;
+    } catch (e) {
+      addTerminalLog(`Screen preview failed: ${e.message}`, 'error');
+    } finally {
+      btnPreview.classList.remove('loading');
     }
   }
 
@@ -523,7 +598,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function appendLogLine(lineText) {
     const line = document.createElement('div');
     line.className = 'log-line';
-    
+
     // Classify line source for color coding
     if (lineText.includes('adb pair') || lineText.includes('[ADB Pair]')) {
       line.classList.add('adb-line');
@@ -536,7 +611,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (lineText.toLowerCase().includes('error') || lineText.toLowerCase().includes('failed')) {
       line.classList.add('error-line');
     }
-    
+
     line.innerText = lineText;
     terminalLogs.appendChild(line);
   }
@@ -640,7 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateDownloadProgressUI(data) {
     downloadProgressFill.style.width = `${data.progress}%`;
     downloadProgressText.innerText = `Downloading: ${data.progress}%`;
-    
+
     const downloadedMB = (data.downloaded / 1024 / 1024).toFixed(1);
     const totalMB = (data.total / 1024 / 1024).toFixed(1);
     downloadProgressBytes.innerText = `${downloadedMB} MB / ${totalMB} MB`;
@@ -652,7 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnDownloadScrcpy.classList.add('hidden');
       downloadProgressBar.classList.remove('hidden');
       addTerminalLog('Initiating Scrcpy download...', 'system');
-      
+
       const res = await fetch('/api/download', { method: 'POST' });
       const data = await res.json();
       if (data.error) {
@@ -689,6 +764,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnRefreshStatus.addEventListener('click', refreshStatus);
+  btnPreview.addEventListener('click', () => capturePreview());
   btnDiscoveryScan.addEventListener('click', async () => {
     try {
       btnDiscoveryScan.disabled = true;
@@ -707,7 +783,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnDiscoveryScan.innerText = 'Scan';
     }
   });
-  
+
   btnClearLogs.addEventListener('click', () => {
     terminalLogs.innerHTML = `<div class="log-line system-line">[System] Console cleared.</div>`;
   });
@@ -727,18 +803,18 @@ document.addEventListener('DOMContentLoaded', () => {
       btnPair.disabled = true;
       btnPair.innerText = 'Pairing...';
       addTerminalLog(`Initiating pairing to ${ip}:${port} with code ${code}...`, 'system');
-      
+
       const res = await fetch('/api/pair', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ip, port, code })
       });
       const data = await res.json();
-      
+
       if (data.success) {
         addTerminalLog(`Pairing completed: ${data.message}`, 'success');
         showToast('Paired! Now check your phone for the connection IP/Port, then click Connect.', 'success', { title: 'Device Paired', duration: 6500 });
-        
+
         // Auto-fill connection IP as it's usually the same as the pairing IP
         connectIp.value = ip;
       } else {
@@ -762,14 +838,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       addTerminalLog(`Connecting to device ${ip}:${port}...`, 'system');
-      
+
       const res = await fetch('/api/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ip, port })
       });
       const data = await res.json();
-      
+
       if (data.success) {
         addTerminalLog(`Connected to ${ip}:${port}`, 'success');
 
@@ -804,10 +880,10 @@ document.addEventListener('DOMContentLoaded', () => {
       btnEnableTcpip.disabled = true;
       btnEnableTcpip.innerText = 'Enabling...';
       addTerminalLog('Sending TCP/IP activation command (requires USB connection)...', 'system');
-      
+
       const res = await fetch('/api/tcpip', { method: 'POST' });
       const data = await res.json();
-      
+
       if (data.success) {
         addTerminalLog(`Wireless TCP/IP mode enabled: ${data.message}`, 'success');
         showToast('TCP/IP enabled on port 5555. Unplug USB, enter the phone IP, and connect wirelessly.', 'success', { title: 'Wireless Mode Enabled', duration: 6500 });
@@ -835,7 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       addTerminalLog(`Starting screen mirroring on ${appState.selectedDeviceId}...`, 'system');
       btnStartMirroring.disabled = true;
-      
+
       const res = await fetch('/api/start-scrcpy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -934,10 +1010,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function saveRecentDevice(ip, port, name = null) {
     let list = getRecentDevices();
-    
+
     // Remove if already exists to place it at top (most recent)
     list = list.filter(item => !(item.ip === ip && item.port === port));
-    
+
     list.unshift({
       ip,
       port,
@@ -947,7 +1023,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Cap list at 5 items
     if (list.length > 5) list.pop();
-    
+
     localStorage.setItem('recentDevices', JSON.stringify(list));
     renderRecentDevices();
   }
@@ -993,7 +1069,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.addEventListener('click', () => {
         const ip = btn.dataset.ip;
         const port = btn.dataset.port;
-        
+
         // Auto fill form based on active tab or default to connectIp
         const activeTab = document.querySelector('.tab-btn.active').dataset.tab;
         if (activeTab === 'modern') {
@@ -1002,7 +1078,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
           legacyIp.value = ip;
         }
-        
+
         connectDevice(ip, port);
       });
     });
@@ -1021,4 +1097,9 @@ document.addEventListener('DOMContentLoaded', () => {
   refreshStatus();
   renderRecentDevices();
   connectEventStream();
+
+  // Periodically reconcile UI with real backend state. This catches cases where
+  // a scrcpy session ends without an explicit event (window closed, crash) so a
+  // phantom "mirroring"/"recording" indicator cannot linger on the dashboard.
+  setInterval(refreshStatus, 5000);
 });
