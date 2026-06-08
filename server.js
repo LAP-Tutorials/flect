@@ -16,7 +16,17 @@ let downloadProgress = { active: false, progress: 0, downloaded: 0, total: 0 };
 let eventClients = [];
 let logBuffer = [];
 const deviceNameCachePath = path.join(__dirname, 'device-name-cache.json');
-let deviceNameCache = { byAdbId: {}, byHardwareId: {} };
+let deviceNameCache = { byAdbId: {}, byHardwareId: {}, byHost: {} };
+const autoDiscoveryState = {
+  lastScanAt: null,
+  devices: [],
+  scanning: false,
+  lastError: null,
+  lastHint: '',
+  lastConnectAttemptAt: {},
+  announcedPairingHosts: {},
+  announcedConnectedEndpoints: {}
+};
 
 // Helper function to broadcast events to SSE clients
 function broadcastEvent(type, data) {
@@ -43,11 +53,12 @@ function loadDeviceNameCache() {
     const parsed = JSON.parse(raw);
     deviceNameCache = {
       byAdbId: parsed?.byAdbId || {},
-      byHardwareId: parsed?.byHardwareId || {}
+      byHardwareId: parsed?.byHardwareId || {},
+      byHost: parsed?.byHost || {}
     };
   } catch (e) {
     logMessage(`Device name cache load warning: ${e.message}`);
-    deviceNameCache = { byAdbId: {}, byHardwareId: {} };
+    deviceNameCache = { byAdbId: {}, byHardwareId: {}, byHost: {} };
   }
 }
 
@@ -85,6 +96,11 @@ function buildDeviceDisplayName(manufacturer, model) {
   return cleanModel || cleanManufacturer || '';
 }
 
+function extractHostFromAdbId(adbId) {
+  const match = String(adbId || '').match(/^(\d+\.\d+\.\d+\.\d+):\d+$/);
+  return match ? match[1] : '';
+}
+
 // Get the path to Scrcpy binaries
 function getPaths() {
   const scrcpyDir = path.join(__dirname, 'scrcpy-win64');
@@ -117,6 +133,11 @@ async function resolveDeviceNameInfo(adbId) {
 async function enrichDeviceWithName(device) {
   const knownByAdb = deviceNameCache.byAdbId[device.id];
   if (knownByAdb?.name) {
+    const hostFromId = extractHostFromAdbId(device.id);
+    if (hostFromId) {
+      deviceNameCache.byHost[hostFromId] = { name: knownByAdb.name };
+      saveDeviceNameCache();
+    }
     return { ...device, name: knownByAdb.name };
   }
 
@@ -133,6 +154,10 @@ async function enrichDeviceWithName(device) {
   if (resolved.hardwareId && deviceNameCache.byHardwareId[resolved.hardwareId]?.name) {
     const cached = deviceNameCache.byHardwareId[resolved.hardwareId].name;
     deviceNameCache.byAdbId[device.id] = { name: cached, hardwareId: resolved.hardwareId };
+    const hostFromId = extractHostFromAdbId(device.id);
+    if (hostFromId) {
+      deviceNameCache.byHost[hostFromId] = { name: cached };
+    }
     saveDeviceNameCache();
     return { ...device, name: cached };
   }
@@ -140,6 +165,10 @@ async function enrichDeviceWithName(device) {
   deviceNameCache.byAdbId[device.id] = { name: resolved.name, hardwareId: resolved.hardwareId || '' };
   if (resolved.hardwareId) {
     deviceNameCache.byHardwareId[resolved.hardwareId] = { name: resolved.name };
+  }
+  const hostFromId = extractHostFromAdbId(device.id);
+  if (hostFromId) {
+    deviceNameCache.byHost[hostFromId] = { name: resolved.name };
   }
   saveDeviceNameCache();
 
@@ -172,6 +201,152 @@ function parseDevices(stdout) {
 }
 
 loadDeviceNameCache();
+
+function parseMdnsServicesOutput(output) {
+  const lines = String(output || '').split('\n').map((line) => line.trim()).filter(Boolean);
+  const byHost = {};
+
+  for (const line of lines) {
+    const endpointMatch = line.match(/(\d+\.\d+\.\d+\.\d+):(\d+)/);
+    if (!endpointMatch) continue;
+
+    const host = endpointMatch[1];
+    const port = endpointMatch[2];
+    const endpoint = `${host}:${port}`;
+    const lower = line.toLowerCase();
+
+    if (!byHost[host]) {
+      byHost[host] = {
+        host,
+        connectEndpoint: null,
+        pairingEndpoint: null
+      };
+    }
+
+    if (lower.includes('._adb-tls-connect._tcp')) {
+      byHost[host].connectEndpoint = endpoint;
+    } else if (lower.includes('._adb-tls-pairing._tcp')) {
+      byHost[host].pairingEndpoint = endpoint;
+    }
+  }
+
+  return Object.values(byHost);
+}
+
+async function refreshAutoDiscovery() {
+  if (autoDiscoveryState.scanning) {
+    return;
+  }
+  autoDiscoveryState.scanning = true;
+
+  try {
+  const paths = getPaths();
+  if (!paths.exists) {
+    autoDiscoveryState.lastScanAt = new Date().toISOString();
+    autoDiscoveryState.devices = [];
+    autoDiscoveryState.lastHint = 'Scrcpy/ADB binaries are missing.';
+    return;
+  }
+
+  await runShellCommand(`"${paths.adb}" start-server`, { timeout: 8000 });
+  const mdnsResult = await runShellCommand(`"${paths.adb}" mdns services`, { timeout: 12000 });
+  if (mdnsResult.err) {
+    autoDiscoveryState.lastScanAt = new Date().toISOString();
+    autoDiscoveryState.lastError = (mdnsResult.stderr || mdnsResult.err.message || 'mDNS discovery failed').trim();
+    autoDiscoveryState.lastHint = 'Make sure phone and PC are on same Wi-Fi and Wireless Debugging screen is open.';
+    return;
+  }
+
+  const mdnsHosts = parseMdnsServicesOutput(`${mdnsResult.stdout}\n${mdnsResult.stderr}`);
+  const devicesResult = await runShellCommand(`"${paths.adb}" devices`, { timeout: 8000 });
+  const connected = parseDevices(devicesResult.stdout || '').filter((d) => d.status === 'device');
+  const connectedSet = new Set(connected.map((d) => d.id));
+
+  const discoveryEntries = [];
+  const now = Date.now();
+
+  for (const hostEntry of mdnsHosts) {
+    const host = hostEntry.host;
+    const connectEndpoint = hostEntry.connectEndpoint;
+    const pairingEndpoint = hostEntry.pairingEndpoint;
+    const cachedName = deviceNameCache.byHost[host]?.name || null;
+    const displayName = cachedName || 'Unknown Android device';
+
+    let status = 'needs_pairing';
+    let detail = 'Pairing is required for first-time devices.';
+
+    if (connectEndpoint) {
+      let isConnected = connectedSet.has(connectEndpoint);
+      let authRequired = false;
+      if (!isConnected) {
+        const lastAttempt = autoDiscoveryState.lastConnectAttemptAt[connectEndpoint] || 0;
+        if (now - lastAttempt > 15000) {
+          autoDiscoveryState.lastConnectAttemptAt[connectEndpoint] = now;
+          const connectResult = await runShellCommand(`"${paths.adb}" connect ${connectEndpoint}`, { timeout: 8000 });
+          const connectOutput = `${connectResult.stdout}\n${connectResult.stderr}`.toLowerCase();
+          if (connectOutput.includes('connected to') || connectOutput.includes('already connected')) {
+            isConnected = true;
+            connectedSet.add(connectEndpoint);
+            if (!autoDiscoveryState.announcedConnectedEndpoints[connectEndpoint]) {
+              autoDiscoveryState.announcedConnectedEndpoints[connectEndpoint] = true;
+              logMessage(`Auto-discovery connected to ${connectEndpoint}.`);
+            }
+          } else if (
+            connectOutput.includes('failed to authenticate') ||
+            connectOutput.includes('authentication') ||
+            connectOutput.includes('pair')
+          ) {
+            authRequired = true;
+          }
+        }
+      }
+
+      if (isConnected) {
+        status = 'paired_connected';
+        detail = 'Already paired and ready to mirror.';
+      } else if (authRequired) {
+        status = 'waiting_pairing_endpoint';
+        detail = 'Pairing required. If scan still shows no pairing endpoint, enter IP/Port from the phone manually.';
+      } else {
+        status = 'discovered_not_connected';
+        detail = 'Discovered but not connected yet. Will keep retrying auto-connect.';
+      }
+    } else if (pairingEndpoint) {
+      detail = 'Pairing required: use this pairing endpoint from your phone screen.';
+      if (!autoDiscoveryState.announcedPairingHosts[host]) {
+        autoDiscoveryState.announcedPairingHosts[host] = true;
+        logMessage(`Discovered new device at ${host}. Pairing is required before auto-connect.`);
+      }
+    } else {
+      status = 'waiting_pairing_endpoint';
+      detail = 'Device discovered, but pairing endpoint is hidden. Use IP/Port shown on phone if scan does not update.';
+    }
+
+    discoveryEntries.push({
+      host,
+      name: displayName,
+      connectEndpoint: connectEndpoint || null,
+      pairingEndpoint: pairingEndpoint || null,
+      status,
+      detail
+    });
+  }
+
+  discoveryEntries.sort((a, b) => {
+    const rank = (entry) => (entry.status === 'paired_connected' ? 0 : entry.status === 'discovered_not_connected' ? 1 : 2);
+    return rank(a) - rank(b);
+  });
+
+  autoDiscoveryState.lastScanAt = new Date().toISOString();
+  autoDiscoveryState.devices = discoveryEntries;
+  autoDiscoveryState.lastError = null;
+  autoDiscoveryState.lastHint = discoveryEntries.length
+    ? 'Auto-discovery is active.'
+    : 'No devices found yet. Open Wireless Debugging on your phone, then tap Scan.';
+  } finally {
+    autoDiscoveryState.scanning = false;
+  }
+}
 
 // Execute adb command
 function runAdbCommand(args) {
@@ -216,37 +391,57 @@ function isScrcpyRunning() {
   });
 }
 
-async function stopScrcpyProcessGracefully({ allowForceFallback = true } = {}) {
-  const graceful = await runShellCommand('taskkill /IM scrcpy.exe /T');
-  const gracefulText = `${graceful.stdout}\n${graceful.stderr}\n${graceful.err ? graceful.err.message : ''}`.toLowerCase();
-  const noProcess = gracefulText.includes('not found') || gracefulText.includes('no running instance');
+// Politely ask every running scrcpy instance to close its main window. This is
+// equivalent to the user clicking the window's X button, which lets scrcpy run
+// its clean shutdown path and finalize any in-progress MP4 recording (writing
+// the moov trailer) so the file remains playable.
+function closeScrcpyWindowsGracefully() {
+  const psCommand =
+    "Get-Process scrcpy -ErrorAction SilentlyContinue | ForEach-Object { $_.CloseMainWindow() | Out-Null }";
+  return runShellCommand(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCommand}"`);
+}
 
-  if (!graceful.err) {
-    return { mode: 'graceful', output: graceful.stdout.trim() || 'scrcpy.exe terminated.' };
+// Poll until scrcpy.exe is no longer running or the timeout elapses.
+async function waitForScrcpyExit(timeoutMs) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (!(await isScrcpyRunning())) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
   }
-  if (noProcess) {
+  return !(await isScrcpyRunning());
+}
+
+async function stopScrcpyProcessGracefully({ allowForceFallback = true, isRecording = false } = {}) {
+  if (!(await isScrcpyRunning())) {
     return { mode: 'none', output: 'No running scrcpy.exe process found.' };
   }
+
+  // 1) Request a clean window close (finalizes recordings). Also send a plain
+  //    taskkill (no /F) as a secondary graceful signal for console-only cases.
+  await closeScrcpyWindowsGracefully();
+  await runShellCommand('taskkill /IM scrcpy.exe');
+
+  // 2) Allow time to flush/finalize. Recordings need noticeably longer to write
+  //    the MP4 trailer, so give them a generous window before considering force.
+  const gracePeriodMs = isRecording ? 12000 : 4000;
+  if (await waitForScrcpyExit(gracePeriodMs)) {
+    return { mode: 'graceful', output: 'scrcpy.exe closed cleanly.' };
+  }
+
   if (!allowForceFallback) {
-    return { mode: 'error', output: (graceful.stderr || graceful.err.message || 'Failed to stop scrcpy.exe').trim() };
+    return { mode: 'error', output: 'scrcpy.exe did not exit within the grace period.' };
   }
 
-  // Give graceful shutdown a moment to complete before forcing.
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  const stillRunning = await isScrcpyRunning();
-  if (!stillRunning) {
-    return { mode: 'graceful', output: graceful.stdout.trim() || 'scrcpy.exe terminated.' };
-  }
-
+  // 3) Last resort. A forced kill can corrupt an in-progress recording, so this
+  //    only runs when the clean close failed to terminate scrcpy in time.
   const forced = await runShellCommand('taskkill /IM scrcpy.exe /T /F');
-  const forcedText = `${forced.stdout}\n${forced.stderr}\n${forced.err ? forced.err.message : ''}`.toLowerCase();
-  const noProcessAfter = forcedText.includes('not found') || forcedText.includes('no running instance');
-
-  if (!forced.err || noProcessAfter) {
-    return { mode: 'force', output: forced.stdout.trim() || 'scrcpy.exe force-terminated.' };
+  if (await waitForScrcpyExit(3000) || !forced.err) {
+    return { mode: 'force', output: 'scrcpy.exe force-terminated.' };
   }
 
-  return { mode: 'error', output: (forced.stderr || forced.err.message || 'Failed to force terminate scrcpy.exe').trim() };
+  return { mode: 'error', output: (forced.stderr || (forced.err && forced.err.message) || 'Failed to force terminate scrcpy.exe').trim() };
 }
 
 // SERVER EVENTS (SSE) Endpoint
@@ -295,6 +490,14 @@ app.get('/api/status', async (req, res) => {
     mirroringActive: scrcpyProcess !== null,
     mirroredDeviceId: scrcpyProcess?.deviceId || null,
     recordingActive: !!scrcpyProcess?.recordingEnabled,
+    autoDiscovery: {
+      lastScanAt: autoDiscoveryState.lastScanAt,
+      devices: autoDiscoveryState.devices,
+      needsPairingCount: autoDiscoveryState.devices.filter((d) => d.status === 'needs_pairing').length,
+      scanning: autoDiscoveryState.scanning,
+      lastError: autoDiscoveryState.lastError,
+      lastHint: autoDiscoveryState.lastHint
+    },
     adbRunning,
     devices: adbDevices,
     downloadState: downloadProgress
@@ -543,6 +746,23 @@ app.post('/api/tcpip', async (req, res) => {
   }
 });
 
+// MANUAL AUTO-DISCOVERY SCAN
+app.post('/api/discovery/scan', async (req, res) => {
+  await refreshAutoDiscovery();
+  res.json({
+    success: true,
+    message: 'Discovery scan completed.',
+    autoDiscovery: {
+      lastScanAt: autoDiscoveryState.lastScanAt,
+      devices: autoDiscoveryState.devices,
+      needsPairingCount: autoDiscoveryState.devices.filter((d) => d.status === 'needs_pairing').length,
+      scanning: autoDiscoveryState.scanning,
+      lastError: autoDiscoveryState.lastError,
+      lastHint: autoDiscoveryState.lastHint
+    }
+  });
+});
+
 // START SCRCPY MIRRORING
 app.post('/api/start-scrcpy', async (req, res) => {
   const settings = req.body || {};
@@ -632,6 +852,7 @@ app.post('/api/start-scrcpy', async (req, res) => {
   if (settings.turnScreenOff) args.push('--turn-screen-off');
   if (settings.showTouches) args.push('--show-touches');
   
+  let recordingFile = null;
   if (settings.record) {
     // Save recording in a local recordings directory
     const recDir = path.join(__dirname, 'recordings');
@@ -639,8 +860,9 @@ app.post('/api/start-scrcpy', async (req, res) => {
       fs.mkdirSync(recDir);
     }
     const filename = `recording_${Date.now()}.mp4`;
+    recordingFile = path.join(recDir, filename);
     args.push('--record');
-    args.push(path.join(recDir, filename));
+    args.push(recordingFile);
     logMessage(`Recording enabled. File will be saved to: recordings/${filename}`);
   }
   
@@ -684,7 +906,7 @@ app.post('/api/start-scrcpy', async (req, res) => {
   });
   
   // Track active mirroring state and device so UI can show the actual mirrored target.
-  scrcpyProcess = { active: true, deviceId: target || null, recordingEnabled: !!settings.record };
+  scrcpyProcess = { active: true, deviceId: target || null, recordingEnabled: !!settings.record, recordingFile };
   
   // Poll for scrcpy.exe process to detect when user closes the mirroring window
   setTimeout(() => {
@@ -716,14 +938,15 @@ app.post('/api/stop-scrcpy', async (req, res) => {
   logMessage('Stop requested: attempting to terminate any running scrcpy process...');
   const mirroredDeviceId = scrcpyProcess?.deviceId || null;
   const wasRecording = !!scrcpyProcess?.recordingEnabled;
+  const recordingFile = scrcpyProcess?.recordingFile || null;
 
   // Clear the polling interval if we have a tracked process.
   if (scrcpyProcess && scrcpyProcess._pollInterval) {
     clearInterval(scrcpyProcess._pollInterval);
   }
 
-  // Stop process first (graceful preferred) to reduce recording corruption risk.
-  const stopResult = await stopScrcpyProcessGracefully({ allowForceFallback: true });
+  // Close cleanly first so an in-progress recording can finalize its MP4 trailer.
+  const stopResult = await stopScrcpyProcessGracefully({ allowForceFallback: true, isRecording: wasRecording });
 
   // Clear tracked state after stop attempt so UI does not remain stuck in active mode.
   scrcpyProcess = null;
@@ -736,10 +959,26 @@ app.post('/api/stop-scrcpy', async (req, res) => {
 
   if (stopResult.mode === 'force' && wasRecording) {
     logMessage('Stop used force termination while recording; resulting file may be incomplete.');
-    return res.json({ success: true, message: 'Mirroring stopped (forced). Recording file may be incomplete.' });
+    return res.json({ success: true, message: 'Mirroring stopped, but the recording was force-closed and may be incomplete.' });
   }
 
   logMessage(`Stop result: ${stopResult.output}`);
+
+  if (wasRecording && recordingFile) {
+    // Confirm the finalized recording exists and has real content.
+    try {
+      const stats = fs.existsSync(recordingFile) ? fs.statSync(recordingFile) : null;
+      const relativePath = path.relative(__dirname, recordingFile);
+      if (stats && stats.size > 0) {
+        logMessage(`Recording finalized: ${relativePath} (${(stats.size / 1024 / 1024).toFixed(1)} MB).`);
+        return res.json({ success: true, message: `Recording saved and finalized: ${relativePath}` });
+      }
+      logMessage(`Recording stopped but file looks empty: ${relativePath}`);
+    } catch (e) {
+      logMessage(`Could not verify recording file: ${e.message}`);
+    }
+  }
+
   return res.json({ success: true, message: 'Mirroring stopped successfully.' });
 });
 
@@ -776,6 +1015,8 @@ app.post('/api/live/turn-screen', async (req, res) => {
 // Start the server and auto-open the browser
 app.listen(PORT, () => {
   console.log(`Server is running at http://localhost:${PORT}`);
+  refreshAutoDiscovery();
+  setInterval(refreshAutoDiscovery, 7000);
   
   // Auto-open browser in Windows
   const openUrl = `http://localhost:${PORT}`;

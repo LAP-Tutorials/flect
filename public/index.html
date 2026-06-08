@@ -117,6 +117,17 @@
 
         <!-- Connection Wizard Card -->
         <div class="card card-wizard" id="connectionWizardCard">
+          <div class="card-header">
+            <h2>Auto Discovery</h2>
+            <button id="btnDiscoveryScan" class="btn btn-outline btn-sm">Scan</button>
+          </div>
+          <div id="discoverySummary" class="fieldset-help">
+            Scanning your local network for Wireless Debugging devices...
+          </div>
+          <div id="discoveryList" class="recent-devices-list">
+            <p class="empty-state">Waiting for discovery results...</p>
+          </div>
+
           <div class="card-tabs">
             <button class="tab-btn active" data-tab="modern">Android 11+ (Wireless Pairing)</button>
             <button class="tab-btn" data-tab="legacy">Android 10 & Older (USB Start)</button>
@@ -411,6 +422,10 @@
 
     </main>
   </div>
+
+  <!-- Toast Notifications -->
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+
   <script src="app.js"></script>
 </body>
 </html>

@@ -7,6 +7,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusMirroring = document.getElementById('statusMirroring');
   const downloaderSection = document.getElementById('downloaderSection');
   const connectionWizardCard = document.getElementById('connectionWizardCard');
+  const discoverySummary = document.getElementById('discoverySummary');
+  const discoveryList = document.getElementById('discoveryList');
+  const btnDiscoveryScan = document.getElementById('btnDiscoveryScan');
   const btnDownloadScrcpy = document.getElementById('btnDownloadScrcpy');
   const downloadProgressBar = document.getElementById('downloadProgressBar');
   const downloadProgressFill = document.getElementById('downloadProgressFill');
@@ -66,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
     mirroringActive: false,
     mirroredDeviceId: null,
     recordingActive: false,
+    autoDiscovery: { lastScanAt: null, devices: [], needsPairingCount: 0, scanning: false, lastError: null, lastHint: '' },
     adbRunning: false,
     devices: [],
     selectedDeviceId: null
@@ -74,6 +78,60 @@ document.addEventListener('DOMContentLoaded', () => {
   let liveUpdatePending = false;
   let pendingLiveReason = '';
   let liveApplyTimer = null;
+
+  // 0. TOAST NOTIFICATION SYSTEM
+  const toastContainer = document.getElementById('toastContainer');
+  const toastIcons = { success: '✓', error: '✕', warning: '!', info: 'i' };
+  const toastTitles = { success: 'Success', error: 'Error', warning: 'Heads up', info: 'Info' };
+
+  function showToast(message, type = 'info', options = {}) {
+    if (!toastContainer) return null;
+    const { title, duration = 4500 } = options;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `
+      <div class="toast-icon">${toastIcons[type] || 'i'}</div>
+      <div class="toast-content">
+        <div class="toast-title"></div>
+        <div class="toast-message"></div>
+      </div>
+      <button class="toast-close" aria-label="Dismiss">&times;</button>
+      <div class="toast-progress"></div>
+    `;
+    toast.querySelector('.toast-title').textContent = title || toastTitles[type] || 'Notice';
+    toast.querySelector('.toast-message').textContent = message;
+    const progress = toast.querySelector('.toast-progress');
+
+    let hideTimer = null;
+    const dismiss = () => {
+      if (toast.classList.contains('hide')) return;
+      clearTimeout(hideTimer);
+      toast.classList.add('hide');
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 400);
+    };
+
+    toast.querySelector('.toast-close').addEventListener('click', dismiss);
+    toastContainer.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+
+    if (duration > 0) {
+      progress.style.animation = `toast-countdown ${duration}ms linear forwards`;
+      hideTimer = setTimeout(dismiss, duration);
+      toast.addEventListener('mouseenter', () => {
+        clearTimeout(hideTimer);
+        progress.style.animationPlayState = 'paused';
+      });
+      toast.addEventListener('mouseleave', () => {
+        progress.style.animationPlayState = 'running';
+        hideTimer = setTimeout(dismiss, 1800);
+      });
+    } else {
+      progress.style.display = 'none';
+    }
+    return toast;
+  }
 
   // 1. TABS SYSTEM
   tabButtons.forEach(btn => {
@@ -130,6 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
       appState.mirroringActive = status.mirroringActive;
       appState.mirroredDeviceId = status.mirroredDeviceId || null;
       appState.recordingActive = !!status.recordingActive;
+      appState.autoDiscovery = status.autoDiscovery || { lastScanAt: null, devices: [], needsPairingCount: 0, scanning: false, lastError: null, lastHint: '' };
       appState.adbRunning = status.adbRunning;
       appState.devices = status.devices;
 
@@ -172,6 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Render Devices list
       renderDevicesList(status.devices);
+      renderDiscoveryList();
       
       // Update Download progress if active
       if (status.downloadState.active) {
@@ -261,6 +321,127 @@ document.addEventListener('DOMContentLoaded', () => {
     return match?.name || deviceId || 'Unknown Device';
   }
 
+  function renderDiscoveryList() {
+    const discovery = appState.autoDiscovery || { devices: [], needsPairingCount: 0, scanning: false, lastScanAt: null, lastError: null, lastHint: '' };
+    const items = discovery.devices || [];
+    const lastScanText = discovery.lastScanAt
+      ? `Last scan: ${new Date(discovery.lastScanAt).toLocaleTimeString()}`
+      : 'Waiting for first scan...';
+    btnDiscoveryScan.disabled = !!discovery.scanning;
+    btnDiscoveryScan.innerText = discovery.scanning ? 'Scanning...' : 'Scan';
+
+    if (!items.length) {
+      const hint = discovery.lastError
+        ? `Discovery issue: ${discovery.lastError}`
+        : (discovery.lastHint || '');
+      discoverySummary.innerText = discovery.scanning
+        ? `Scanning network... ${lastScanText}`
+        : `No wireless debugging devices discovered yet. ${lastScanText}${hint ? ` • ${hint}` : ''}`;
+      discoveryList.innerHTML = `<p class="empty-state">Open Wireless Debugging on your phone to be discovered.</p>`;
+      return;
+    }
+
+    const readyCount = items.filter(i => i.status === 'paired_connected').length;
+    const needsPairingCount = items.filter(i => i.status === 'needs_pairing').length;
+    const waitingEndpointCount = items.filter(i => i.status === 'waiting_pairing_endpoint').length;
+    discoverySummary.innerText = `${readyCount} ready • ${needsPairingCount} need pairing • ${waitingEndpointCount} waiting endpoint • ${lastScanText}`;
+
+    let html = '';
+    items.forEach(item => {
+      const endpoint = item.connectEndpoint || item.pairingEndpoint || item.host;
+      const statusText = item.status === 'paired_connected'
+        ? 'Ready (already paired)'
+        : item.status === 'discovered_not_connected'
+          ? 'Found (auto-connecting)'
+          : item.status === 'waiting_pairing_endpoint'
+            ? 'Waiting for pairing endpoint'
+          : 'Pairing required';
+      const badge = item.status === 'paired_connected'
+        ? '✅ Ready'
+        : item.status === 'discovered_not_connected'
+          ? '🔄 Connecting'
+          : item.status === 'waiting_pairing_endpoint'
+            ? '⏳ Waiting'
+          : '🔐 Pair';
+
+      html += `
+        <div class="recent-device-item discovery-item"
+             data-status="${item.status}"
+             data-name="${item.name || ''}"
+             data-connect-endpoint="${item.connectEndpoint || ''}"
+             data-pairing-endpoint="${item.pairingEndpoint || ''}"
+             data-host="${item.host || ''}">
+          <div class="recent-device-info">
+            <span class="recent-device-ip">${item.name}</span>
+            <span class="recent-device-date">${statusText} • ${endpoint}</span>
+            <span class="recent-device-date">${item.detail || ''}</span>
+          </div>
+          <div class="recent-device-actions">
+            <span class="badge">${badge}</span>
+          </div>
+        </div>
+      `;
+    });
+
+    discoveryList.innerHTML = html;
+    discoveryList.querySelectorAll('.discovery-item').forEach(itemEl => {
+      itemEl.addEventListener('click', async () => {
+        const status = itemEl.dataset.status || '';
+        const name = itemEl.dataset.name || 'device';
+        const connectEndpoint = itemEl.dataset.connectEndpoint || '';
+        const pairingEndpoint = itemEl.dataset.pairingEndpoint || '';
+
+        // Open Android 11+ tab since pairing/connect flow is there.
+        const modernTabBtn = document.querySelector('.tab-btn[data-tab="modern"]');
+        if (modernTabBtn) modernTabBtn.click();
+
+        if (pairingEndpoint) {
+          const [pairHost, pairPortValue] = pairingEndpoint.split(':');
+          pairIp.value = pairHost || pairIp.value;
+          pairPort.value = pairPortValue || pairPort.value;
+        } else if (itemEl.dataset.host) {
+          pairIp.value = itemEl.dataset.host;
+        }
+
+        if (!connectEndpoint) {
+          if (status === 'waiting_pairing_endpoint') {
+            addTerminalLog(
+              `Selected ${name}. Waiting for pairing endpoint. On some phones scan may not expose it; if that happens, manually enter pairing IP/port from the phone and continue.`,
+              'system'
+            );
+            return;
+          }
+          addTerminalLog(`Selected ${name}. Pairing is required first. Open "Pair device with pairing code" on your phone. If scan does not update, use the phone's pairing IP/port manually.`, 'system');
+          return;
+        }
+
+        const [connectHost, connectPortValue] = connectEndpoint.split(':');
+        connectIp.value = connectHost || connectIp.value;
+        connectPort.value = connectPortValue || connectPort.value;
+
+        if (status === 'paired_connected') {
+          const connectedDevice = appState.devices.find(d => d.id === connectEndpoint);
+          if (connectedDevice) {
+            appState.selectedDeviceId = connectedDevice.id;
+            renderDevicesList(appState.devices);
+            addTerminalLog(`Selected ${name}. Ready to mirror.`, 'success');
+            return;
+          }
+        }
+
+        addTerminalLog(`Connecting to discovered device ${name} (${connectEndpoint})...`, 'system');
+        await connectDevice(connectHost, connectPortValue);
+      });
+    });
+
+    const firstNeedsPairing = items.find(i => i.status === 'needs_pairing' && i.pairingEndpoint);
+    if (firstNeedsPairing) {
+      const [host, port] = firstNeedsPairing.pairingEndpoint.split(':');
+      pairIp.value = host || pairIp.value;
+      pairPort.value = port || pairPort.value;
+    }
+  }
+
   function updateMirrorControlBar() {
     if (appState.selectedDeviceId) {
       mirrorControlPanel.classList.remove('hidden');
@@ -307,6 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     eventSource.addEventListener('installed', (e) => {
       addTerminalLog('Scrcpy installed successfully!', 'success');
+      showToast('Scrcpy binaries installed. You are ready to mirror.', 'success', { title: 'Install Complete' });
       btnDownloadScrcpy.classList.remove('hidden');
       downloadProgressBar.classList.add('hidden');
       refreshStatus();
@@ -407,6 +589,12 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(stopData.error || stopData.message || 'Failed to stop current mirroring session.');
       }
 
+      // Surface recording finalization feedback (e.g. "Recording saved and finalized: ...").
+      if (stopData.message && /recording/i.test(stopData.message)) {
+        const incomplete = /incomplete/i.test(stopData.message);
+        showToast(stopData.message, incomplete ? 'warning' : 'success', { title: incomplete ? 'Recording Warning' : 'Recording Saved', duration: 7000 });
+      }
+
       const settings = collectMirroringSettings(true);
       const startRes = await fetch('/api/start-scrcpy', {
         method: 'POST',
@@ -469,11 +657,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (data.error) {
         addTerminalLog(`Download failed: ${data.error}`, 'error');
+        showToast(data.error, 'error', { title: 'Download Failed' });
         btnDownloadScrcpy.classList.remove('hidden');
         downloadProgressBar.classList.add('hidden');
       }
     } catch (e) {
       addTerminalLog(`Error starting download: ${e.message}`, 'error');
+      showToast(e.message, 'error', { title: 'Download Error' });
       btnDownloadScrcpy.classList.remove('hidden');
       downloadProgressBar.classList.add('hidden');
     }
@@ -486,16 +676,37 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (data.success) {
         addTerminalLog('ADB server reset successfully.', 'success');
+        showToast('ADB daemon restarted.', 'success', { title: 'ADB Restarted' });
       } else {
         addTerminalLog(`Failed to restart ADB: ${data.error}`, 'error');
+        showToast(data.error || 'Could not restart the ADB daemon.', 'error', { title: 'ADB Restart Failed' });
       }
       setTimeout(refreshStatus, 1000);
     } catch (e) {
       addTerminalLog(`Error restarting ADB: ${e.message}`, 'error');
+      showToast(e.message, 'error', { title: 'ADB Error' });
     }
   });
 
   btnRefreshStatus.addEventListener('click', refreshStatus);
+  btnDiscoveryScan.addEventListener('click', async () => {
+    try {
+      btnDiscoveryScan.disabled = true;
+      btnDiscoveryScan.innerText = 'Scanning...';
+      const res = await fetch('/api/discovery/scan', { method: 'POST' });
+      const data = await res.json();
+      if (data?.autoDiscovery) {
+        appState.autoDiscovery = data.autoDiscovery;
+      }
+      await refreshStatus();
+    } catch (e) {
+      addTerminalLog(`Discovery scan failed: ${e.message}`, 'error');
+      showToast(e.message, 'error', { title: 'Scan Failed' });
+    } finally {
+      btnDiscoveryScan.disabled = false;
+      btnDiscoveryScan.innerText = 'Scan';
+    }
+  });
   
   btnClearLogs.addEventListener('click', () => {
     terminalLogs.innerHTML = `<div class="log-line system-line">[System] Console cleared.</div>`;
@@ -508,7 +719,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const code = pairCode.value.trim();
 
     if (!ip || !port || !code) {
-      alert('Please fill out the IP, Port, and Pairing Code.');
+      showToast('Please fill out the IP, Port, and Pairing Code.', 'warning');
       return;
     }
 
@@ -526,17 +737,17 @@ document.addEventListener('DOMContentLoaded', () => {
       
       if (data.success) {
         addTerminalLog(`Pairing completed: ${data.message}`, 'success');
-        alert('Successfully paired! Now check your phone for the connection IP/Port and click Connect.');
+        showToast('Paired! Now check your phone for the connection IP/Port, then click Connect.', 'success', { title: 'Device Paired', duration: 6500 });
         
         // Auto-fill connection IP as it's usually the same as the pairing IP
         connectIp.value = ip;
       } else {
         addTerminalLog(`Pairing failed: ${data.error}`, 'error');
-        alert(`Pairing failed: ${data.error}`);
+        showToast(data.error || 'Pairing failed. Check the IP, Port, and Pairing Code.', 'error', { title: 'Pairing Failed' });
       }
     } catch (e) {
       addTerminalLog(`Pairing Error: ${e.message}`, 'error');
-      alert(`Pairing Error: ${e.message}`);
+      showToast(e.message, 'error', { title: 'Pairing Error' });
     } finally {
       btnPair.disabled = false;
       btnPair.innerText = 'Pair Device';
@@ -545,7 +756,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function connectDevice(ip, port) {
     if (!ip || !port) {
-      alert('Please specify the Connection IP and Port.');
+      showToast('Please specify the Connection IP and Port.', 'warning');
       return;
     }
 
@@ -569,13 +780,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Save to Recents
         saveRecentDevice(ip, port, connectedDevice?.name || null);
+        showToast(`Connected to ${connectedDevice?.name || `${ip}:${port}`}.`, 'success', { title: 'Device Connected' });
       } else {
         addTerminalLog(`Connection failed: ${data.error}`, 'error');
-        alert(`Connection failed: ${data.error}`);
+        showToast(data.error || 'Could not connect to the device.', 'error', { title: 'Connection Failed' });
       }
     } catch (e) {
       addTerminalLog(`Connect Error: ${e.message}`, 'error');
-      alert(`Connect Error: ${e.message}`);
+      showToast(e.message, 'error', { title: 'Connection Error' });
     }
   }
 
@@ -598,14 +810,14 @@ document.addEventListener('DOMContentLoaded', () => {
       
       if (data.success) {
         addTerminalLog(`Wireless TCP/IP mode enabled: ${data.message}`, 'success');
-        alert('TCP/IP mode enabled over port 5555. You can now unplug your phone from the USB cable, enter the IP, and connect wirelessly!');
+        showToast('TCP/IP enabled on port 5555. Unplug USB, enter the phone IP, and connect wirelessly.', 'success', { title: 'Wireless Mode Enabled', duration: 6500 });
       } else {
         addTerminalLog(`Failed to enable TCP/IP: ${data.error}`, 'error');
-        alert(`Failed to enable TCP/IP: ${data.error}\nMake sure your phone is connected via USB and USB Debugging is turned on.`);
+        showToast('Make sure your phone is connected via USB with USB Debugging enabled.', 'error', { title: 'TCP/IP Failed' });
       }
     } catch (e) {
       addTerminalLog(`TCP/IP activation error: ${e.message}`, 'error');
-      alert(`Error activating TCP/IP: ${e.message}`);
+      showToast(e.message, 'error', { title: 'TCP/IP Error' });
     } finally {
       btnEnableTcpip.disabled = false;
       btnEnableTcpip.innerText = 'Enable TCP/IP Mode over USB';
@@ -615,7 +827,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 8. MIRRORING CONTROLS HANDLERS
   btnStartMirroring.addEventListener('click', async () => {
     if (!appState.selectedDeviceId) {
-      alert('Please select a device from the ADB list first.');
+      showToast('Select a device from the connected list first.', 'warning');
       return;
     }
     const settings = collectMirroringSettings(false);
@@ -632,10 +844,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await res.json();
       if (!data.success) {
         addTerminalLog(`Start mirroring failed: ${data.error}`, 'error');
+        showToast(data.error || 'Could not start mirroring.', 'error', { title: 'Mirroring Failed' });
         btnStartMirroring.disabled = false;
+      } else {
+        showToast(`Mirroring ${getDeviceDisplayNameById(appState.selectedDeviceId)}${settings.record ? ' (recording)' : ''}.`, 'success', { title: 'Mirroring Started' });
       }
     } catch (e) {
       addTerminalLog(`Start Mirroring Error: ${e.message}`, 'error');
+      showToast(e.message, 'error', { title: 'Mirroring Error' });
       btnStartMirroring.disabled = false;
     }
   });
@@ -647,8 +863,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/stop-scrcpy', { method: 'POST' });
       const data = await res.json();
       addTerminalLog(data.message || 'Stop request completed.', data.success ? 'success' : 'error');
+      showToast(data.message || 'Mirroring stopped.', data.success ? 'success' : 'error', { title: data.success ? 'Mirroring Stopped' : 'Stop Failed' });
     } catch (e) {
       addTerminalLog(`Stop Mirroring Error: ${e.message}`, 'error');
+      showToast(e.message, 'error', { title: 'Stop Failed' });
     } finally {
       btnStopMirroring.disabled = false;
     }
