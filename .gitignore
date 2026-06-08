@@ -1,0 +1,15 @@
+# Ignore Node dependencies
+node_modules/
+package-lock.json
+
+# Ignore recorded sessions
+recordings/
+
+# Ignore zip archives and logs
+*.zip
+*.log
+device-name-cache.json
+scrcpy-win64.backup/
+_scrcpy_extract_tmp/
+scrcpy-update.zip
+.gemini/

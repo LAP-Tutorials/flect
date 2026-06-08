@@ -1,0 +1,15 @@
+{
+  "name": "flect",
+  "version": "1.0.0",
+  "description": "Wireless Scrcpy Screen Sharing GUI",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "update:scrcpy": "node scripts/update-scrcpy.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "author": "",
+  "license": "ISC"
+}

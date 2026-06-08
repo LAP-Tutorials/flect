@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flect - Wireless Scrcpy Controller</title>
+  <!-- Google Fonts: Outfit & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Background Glow Effects -->
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+  <div class="glow glow-3"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+            <line x1="12" y1="18" x2="12.01" y2="18"></line>
+          </svg>
+          <div class="wifi-waves">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="laptop-icon">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="2" y1="20" x2="22" y2="20"></line>
+            <line x1="12" y1="17" x2="12" y2="20"></line>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <h1>Flect</h1>
+          <p>Wireless Scrcpy Controller</p>
+        </div>
+      </div>
+      
+      <!-- Top Action Bar -->
+      <div class="top-actions">
+        <button id="btnKillServer" class="btn btn-outline btn-sm" title="Restart the ADB backend daemon">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+          Restart ADB
+        </button>
+        <button id="btnRefreshStatus" class="btn btn-outline btn-sm" title="Refresh connection statuses">
+          <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path></svg>
+          Refresh
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Dashboard Grid -->
+    <main class="dashboard-grid">
+      
+      <!-- Left Column: Status and Wizards -->
+      <section class="grid-col left-col">
+        
+        <!-- Status Card -->
+        <div class="card card-status">
+          <div class="card-header">
+            <h2>System Status</h2>
+          </div>
+          <div class="status-indicators">
+            <div class="indicator" id="statusScrcpy">
+              <span class="status-dot"></span>
+              <div class="indicator-info">
+                <span class="label">Scrcpy Binaries</span>
+                <span class="value">Checking...</span>
+              </div>
+            </div>
+            <div class="indicator" id="statusAdb">
+              <span class="status-dot"></span>
+              <div class="indicator-info">
+                <span class="label">ADB Daemon</span>
+                <span class="value">Checking...</span>
+              </div>
+            </div>
+            <div class="indicator" id="statusMirroring">
+              <span class="status-dot"></span>
+              <div class="indicator-info">
+                <span class="label">Screen Share</span>
+                <span class="value">Inactive</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Downloader Overlay/Section -->
+          <div id="downloaderSection" class="downloader-section hidden">
+            <div class="downloader-card">
+              <svg class="download-icon" viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <div class="download-details">
+                <h3>Scrcpy Binaries Missing</h3>
+                <p>Flect requires precompiled Scrcpy Windows binaries to function. Download the official release package automatically (approx. 20MB).</p>
+              </div>
+            </div>
+            <button id="btnDownloadScrcpy" class="btn btn-primary btn-block">Download Scrcpy v4.0</button>
+            
+            <div id="downloadProgressBar" class="progress-bar-container hidden">
+              <div class="progress-info">
+                <span id="downloadProgressText">Downloading: 0%</span>
+                <span id="downloadProgressBytes">0 MB / 0 MB</span>
+              </div>
+              <div class="progress-track">
+                <div id="downloadProgressFill" class="progress-fill" style="width: 0%"></div>
+              </div>
+              <p class="download-wait-note">Extracting will follow automatically. Please wait...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connection Wizard Card -->
+        <div class="card card-wizard" id="connectionWizardCard">
+          <div class="card-tabs">
+            <button class="tab-btn active" data-tab="modern">Android 11+ (Wireless Pairing)</button>
+            <button class="tab-btn" data-tab="legacy">Android 10 & Older (USB Start)</button>
+          </div>
+
+          <div class="tab-contents">
+            <!-- Tab 1: Android 11+ -->
+            <div class="tab-pane active" id="pane-modern">
+              <div class="step-guide">
+                <div class="guide-step">
+                  <span class="step-num">1</span>
+                  <p>On your phone: Enable <strong>Wireless debugging</strong> in Developer Options.</p>
+                </div>
+                <div class="guide-step">
+                  <span class="step-num">2</span>
+                  <p>Tap "Wireless debugging" & select <strong>"Pair device with pairing code"</strong>.</p>
+                </div>
+              </div>
+
+              <!-- Pairing Box -->
+              <fieldset class="wizard-fieldset">
+                <legend>Step 3: Pair Device</legend>
+                <div class="form-row">
+                  <div class="form-group flex-2">
+                    <label for="pairIp">Pairing IP Address</label>
+                    <input type="text" id="pairIp" placeholder="e.g. 192.168.1.100" value="">
+                  </div>
+                  <div class="form-group flex-1">
+                    <label for="pairPort">Port</label>
+                    <input type="text" id="pairPort" placeholder="e.g. 39485" value="">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-2">
+                    <label for="pairCode">Pairing Code (6 digits)</label>
+                    <input type="text" id="pairCode" placeholder="e.g. 123456" value="">
+                  </div>
+                  <div class="form-group align-end flex-1">
+                    <button id="btnPair" class="btn btn-secondary btn-block">Pair Device</button>
+                  </div>
+                </div>
+              </fieldset>
+
+              <!-- Connection Box -->
+              <fieldset class="wizard-fieldset margin-top-md">
+                <legend>Step 4: Establish Connection</legend>
+                <p class="fieldset-help">Look at the main Wireless Debugging screen for the active connection IP and port (the port will change after pairing).</p>
+                <div class="form-row">
+                  <div class="form-group flex-2">
+                    <label for="connectIp">Connection IP Address</label>
+                    <input type="text" id="connectIp" placeholder="e.g. 192.168.1.100" value="">
+                  </div>
+                  <div class="form-group flex-1">
+                    <label for="connectPort">Port</label>
+                    <input type="text" id="connectPort" placeholder="e.g. 42355" value="">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <button id="btnConnectModern" class="btn btn-primary btn-block">Connect Wirelessly</button>
+                </div>
+              </fieldset>
+            </div>
+
+            <!-- Tab 2: Android 10 & Older -->
+            <div class="tab-pane" id="pane-legacy">
+              <div class="step-guide">
+                <div class="guide-step">
+                  <span class="step-num">1</span>
+                  <p>Connect your phone to your PC via a <strong>USB cable</strong> with USB debugging enabled.</p>
+                </div>
+                <div class="guide-step">
+                  <span class="step-num">2</span>
+                  <p>Click the button below to enable TCP/IP wireless mode on the phone (defaults to port 5555).</p>
+                </div>
+              </div>
+
+              <div class="action-box">
+                <button id="btnEnableTcpip" class="btn btn-secondary btn-block">Enable TCP/IP Mode over USB</button>
+              </div>
+
+              <div class="step-guide margin-top-md">
+                <div class="guide-step">
+                  <span class="step-num">3</span>
+                  <p><strong>Disconnect the USB cable</strong> from your phone.</p>
+                </div>
+                <div class="guide-step">
+                  <span class="step-num">4</span>
+                  <p>Find your phone's Wi-Fi IP address (in settings) and connect below.</p>
+                </div>
+              </div>
+
+              <fieldset class="wizard-fieldset">
+                <div class="form-row">
+                  <div class="form-group flex-3">
+                    <label for="legacyIp">Phone IP Address</label>
+                    <input type="text" id="legacyIp" placeholder="e.g. 192.168.1.100" value="">
+                  </div>
+                  <div class="form-group flex-1">
+                    <label for="legacyPort">Port</label>
+                    <input type="text" id="legacyPort" value="5555" readonly>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <button id="btnConnectLegacy" class="btn btn-primary btn-block">Connect Wirelessly</button>
+                </div>
+              </fieldset>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Devices Profiles -->
+        <div class="card card-recent-devices">
+          <div class="card-header">
+            <h2>Recent Devices</h2>
+          </div>
+          <div id="recentDevicesList" class="recent-devices-list">
+            <!-- Populated via javascript -->
+            <p class="empty-state">No recent connections. Pair/connect a device to save it.</p>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Right Column: Settings, Active Devices, Terminal -->
+      <section class="grid-col right-col">
+        
+        <!-- Active Devices & Control Card -->
+        <div class="card card-devices">
+          <div class="card-header">
+            <h2>Connected ADB Devices</h2>
+            <span class="badge" id="devicesCount">0 Active</span>
+          </div>
+          
+          <div id="adbDevicesList" class="adb-devices-list">
+            <!-- Populated via javascript -->
+            <p class="empty-state">No devices currently connected to ADB.</p>
+          </div>
+
+          <div id="mirrorControlPanel" class="mirror-controls hidden">
+            <div class="selected-device-bar">
+              <span class="icon">📱</span>
+              <div class="device-details">
+                <span class="device-name" id="selectedDeviceName">Unknown Device</span>
+                <span id="recordingIndicator" class="badge hidden">● Recording</span>
+                <span class="device-connection-type">Wireless TCP/IP</span>
+              </div>
+            </div>
+            <div class="control-buttons">
+              <button id="btnStartMirroring" class="btn btn-success flex-2">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                Start Mirroring
+              </button>
+              <button id="btnStopMirroring" class="btn btn-danger flex-1 hidden">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect></svg>
+                Stop
+              </button>
+              <button id="btnStopRecording" class="btn btn-warning flex-1 hidden">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="6"></circle></svg>
+                Stop Recording
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scrcpy Configuration Settings -->
+        <div class="card card-settings">
+          <div class="card-header toggle-header">
+            <h2>Scrcpy Options & Quality</h2>
+            <button id="btnToggleSettings" class="btn-toggle-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+          </div>
+          
+          <div id="settingsContent" class="settings-content">
+            <div class="settings-grid">
+              
+              <!-- Quality Preset -->
+              <div class="form-group full-width">
+                <label for="qualityPreset">Quality Preset</label>
+                <select id="qualityPreset">
+                  <option value="high" selected>Balanced High (1080p, 8 Mbps, 60 FPS)</option>
+                  <option value="ultra">Ultra Performance (1200p, 16 Mbps, 60 FPS)</option>
+                  <option value="low">Low Latency/Weak Wi-Fi (720p, 4 Mbps, 30 FPS)</option>
+                  <option value="custom">Custom Configuration</option>
+                </select>
+              </div>
+
+              <!-- Custom options (shown/enabled based on preset selection) -->
+              <div class="form-group custom-option-group">
+                <label for="maxSize">Max Resolution (px)</label>
+                <select id="maxSize">
+                  <option value="0">Original Resolution</option>
+                  <option value="1920">1920 (1080p)</option>
+                  <option value="1440">1440</option>
+                  <option value="1024" selected>1024</option>
+                  <option value="768">768</option>
+                </select>
+              </div>
+
+              <div class="form-group custom-option-group">
+                <label for="bitRate">Bitrate (Mbps)</label>
+                <select id="bitRate">
+                  <option value="2">2 Mbps</option>
+                  <option value="4" selected>4 Mbps</option>
+                  <option value="8">8 Mbps</option>
+                  <option value="16">16 Mbps</option>
+                </select>
+              </div>
+
+              <div class="form-group custom-option-group">
+                <label for="maxFps">FPS Limit</label>
+                <select id="maxFps">
+                  <option value="0">No Limit</option>
+                  <option value="60" selected>60 FPS</option>
+                  <option value="30">30 FPS</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>Wireless Mode Flag</label>
+                <div class="toggle-switch-container">
+                  <label class="switch">
+                    <input type="checkbox" id="selectTcpIp" checked>
+                    <span class="slider round"></span>
+                  </label>
+                  <span class="toggle-label">Prefer TCP/IP (Recommended)</span>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Toggles for features -->
+            <div class="toggles-grid">
+              <div class="toggle-item">
+                <label class="switch">
+                  <input type="checkbox" id="stayAwake" checked>
+                  <span class="slider round"></span>
+                </label>
+                <span class="toggle-label" title="Keep the physical phone display awake while sharing">Stay Phone Awake</span>
+              </div>
+              <div class="toggle-item">
+                <label class="switch">
+                  <input type="checkbox" id="turnScreenOff">
+                  <span class="slider round"></span>
+                </label>
+                <span class="toggle-label" title="Turn physical phone screen off (saves battery/privacy)">Turn Phone Screen Off</span>
+              </div>
+              <div class="toggle-item">
+                <label class="switch">
+                  <input type="checkbox" id="alwaysOnTop">
+                  <span class="slider round"></span>
+                </label>
+                <span class="toggle-label">Window Always On Top</span>
+              </div>
+              <div class="toggle-item">
+                <label class="switch">
+                  <input type="checkbox" id="noAudio">
+                  <span class="slider round"></span>
+                </label>
+                <span class="toggle-label">Mute Audio Forwarding</span>
+              </div>
+              <div class="toggle-item">
+                <label class="switch">
+                  <input type="checkbox" id="showTouches">
+                  <span class="slider round"></span>
+                </label>
+                <span class="toggle-label">Show Touch Locations</span>
+              </div>
+              <div class="toggle-item">
+                <label class="switch">
+                  <input type="checkbox" id="recordScreen">
+                  <span class="slider round"></span>
+                </label>
+                <span class="toggle-label" title="Record session to MP4 file under recordings folder">Record Screen Session</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terminal Logs -->
+        <div class="card card-terminal">
+          <div class="card-header">
+            <h2>Console Logs</h2>
+            <button id="btnClearLogs" class="btn-clear" title="Clear console output">Clear</button>
+          </div>
+          <div class="terminal-body" id="terminalLogs">
+            <div class="log-line system-line">[System] Welcome to Flect! Launching background logs...</div>
+          </div>
+        </div>
+
+      </section>
+
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
