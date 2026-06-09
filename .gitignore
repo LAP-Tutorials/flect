@@ -5,9 +5,6 @@ node_modules/
 recordings/
 screenshots/
 
-# Ignore local scrcpy binaries (downloaded via UI or npm run update:scrcpy)
-scrcpy-win64/
-
 # Ignore zip archives and logs
 *.zip
 *.log

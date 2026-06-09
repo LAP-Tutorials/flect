@@ -26,7 +26,7 @@
 
 ## Features
 
-- **One-click setup** — Download and extract official scrcpy Windows binaries from the UI
+- **Bundled scrcpy** — Official Windows scrcpy + adb binaries included in `scrcpy-win64/`
 - **Wireless pairing wizard** — Handles the `adb pair` handshake so you never touch a terminal
 - **Device discovery** — Auto-scan the network for wireless debugging endpoints + manual rescan
 - **Full mirroring controls** — Resolution, bitrate, FPS, stay awake, turn screen off, always on top, touch indicators, audio toggle
@@ -74,24 +74,20 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
 ## Usage
 
-### 1. Download scrcpy
-
-On first launch, click **Download Scrcpy** in the dashboard. Binaries are saved to `scrcpy-win64/` (gitignored — not committed to the repo).
-
-### 2. Pair your phone (first time only)
+### 1. Pair your phone (first time only)
 
 1. On your phone: *Wireless debugging → Pair device with pairing code*
 2. In Flect: open the **Pairing Wizard** tab
 3. Enter the IP, port, and 6-digit code shown on your phone
 4. Click **Pair Device**
 
-### 3. Connect wirelessly
+### 2. Connect wirelessly
 
 1. On your phone's main **Wireless debugging** screen, note the IP and port (this port differs from the pairing port)
 2. Enter them in the **Connect** section
 3. Click **Connect**
 
-### 4. Start mirroring
+### 3. Start mirroring
 
 1. Select your device in **Active ADB Devices**
 2. Adjust settings (quality preset, stay awake, record, etc.)
@@ -108,7 +104,6 @@ Recordings land in `./recordings`. Preview captures land in `./screenshots`.
 | `npm start` | Start the Flect web dashboard |
 | `npm run check` | Syntax-check server, client, and scripts |
 | `npm run update:scrcpy` | Update `scrcpy-win64/` to the latest official release |
-| `npm run generate:assets` | Regenerate favicons and PWA icons from `public/images/logo.png` |
 
 <br>
 
@@ -163,9 +158,9 @@ flect/
 │   ├── update-scrcpy.js
 │   └── generate-brand-assets.js
 ├── run.bat              # Windows one-click launcher
+├── scrcpy-win64/        # Bundled scrcpy + adb binaries
 ├── recordings/          # Session MP4s (gitignored)
-├── screenshots/         # Preview PNGs (gitignored)
-└── scrcpy-win64/        # Downloaded binaries (gitignored)
+└── screenshots/         # Preview PNGs (gitignored)
 ```
 
 <br>

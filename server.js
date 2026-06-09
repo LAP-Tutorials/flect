@@ -364,7 +364,7 @@ function runAdbCommand(args) {
   return new Promise((resolve, reject) => {
     const paths = getPaths();
     if (!paths.exists) {
-      return reject(new Error('Scrcpy / ADB binaries not found. Please download them first.'));
+      return reject(new Error('Scrcpy / ADB binaries not found. Ensure the scrcpy-win64/ folder is present.'));
     }
     const adbCmd = `"${paths.adb}" ${args}`;
     logMessage(`Running: adb ${args}`);

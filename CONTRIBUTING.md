@@ -47,7 +47,7 @@ By contributing, you agree that your contributions will be licensed under the sa
 - Keep changes scoped — one logical change per pull request when possible.
 - Prefer fixing root causes over adding workarounds.
 - Do not commit secrets, `.env` files, local device caches, recordings, or screenshots.
-- Do not commit the `scrcpy-win64/` binaries — users download them through the app or `npm run update:scrcpy`.
+- `scrcpy-win64/` is bundled with the repo. Use `npm run update:scrcpy` to refresh binaries when needed.
 
 ## Brand assets
 
