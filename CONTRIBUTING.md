@@ -1,6 +1,8 @@
 # Contributing to Flect
 
-Thank you for your interest in contributing to **Flect**! This project is open source and community contributions are welcome.
+Thank you for your interest in contributing to **Flect**! Community contributions are welcome under the [Flect Non-Commercial License v1.0](./LICENSE).
+
+By contributing, you agree that your contributions will be licensed under the same terms. Flect is free for personal and non-commercial open-source use; commercial use requires separate permission from the copyright holder.
 
 ## Getting started
 

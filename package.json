@@ -28,7 +28,7 @@
     "open-source"
   ],
   "author": "Llewellyn Adonteng Paintsil <Llewellynpaintsil34@gmail.com>",
-  "license": "MIT",
+  "license": "LicenseRef-Flect-NonCommercial-1.0",
   "engines": {
     "node": ">=18"
   },

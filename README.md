@@ -6,7 +6,7 @@
 
 *Wireless Android screen mirroring for Windows — from your browser.*
 
-[![License: MIT](https://img.shields.io/github/license/Llewellyn500/flect?style=flat-square&color=7c3aed)](LICENSE)
+[![License: Non-Commercial](https://img.shields.io/badge/License-Non--Commercial-purple?style=flat-square)](LICENSE)
 [![Node.js](https://img.shields.io/node/v/flect?style=flat-square)](https://nodejs.org/)
 [![CI](https://img.shields.io/github/actions/workflow/status/Llewellyn500/flect/ci.yml?branch=main&style=flat-square&label=build)](https://github.com/Llewellyn500/flect/actions/workflows/ci.yml)
 [![Issues](https://img.shields.io/github/issues/Llewellyn500/flect?style=flat-square)](https://github.com/Llewellyn500/flect/issues)
@@ -221,4 +221,10 @@ Flect is built on top of excellent open-source tools:
 
 ## License
 
-[MIT](LICENSE) © 2026 [Llewellyn Adonteng Paintsil](https://github.com/Llewellyn500)
+[Flect Non-Commercial License v1.0](LICENSE) © 2026 [Llewellyn Adonteng Paintsil](https://github.com/Llewellyn500)
+
+**You may** use, modify, and share Flect for personal, educational, and non-commercial open-source projects.
+
+**You may not** sell Flect or use it in paid products or commercial services without written permission. For commercial licensing, contact **Llewellynpaintsil34@gmail.com**.
+
+> Flect builds on [scrcpy](https://github.com/Genymobile/scrcpy) and other third-party tools, which remain under their own licenses.
