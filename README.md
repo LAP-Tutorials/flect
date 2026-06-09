@@ -55,7 +55,11 @@ Enable wireless debugging on your phone:
 
 ### Install
 
-**Option A — Git clone**
+**Option A — Windows launcher (recommended)**
+
+Double-click [`run.bat`](run.bat). It installs dependencies if needed and starts the server.
+
+**Option B — Git clone**
 
 ```bash
 git clone https://github.com/Llewellyn500/flect.git
@@ -63,10 +67,6 @@ cd flect
 npm install
 npm start
 ```
-
-**Option B — Windows launcher**
-
-Double-click [`run.bat`](run.bat). It installs dependencies if needed and starts the server.
 
 Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
