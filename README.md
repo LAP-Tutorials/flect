@@ -1,102 +1,224 @@
-# Flect 📱✨
-> **Wireless Android Screen Mirroring GUI (Powered by Scrcpy)**
+<div align="center">
 
-Flect is a premium, modern web-based graphical user interface for **scrcpy** on Windows. It makes wireless screen mirroring, device pairing, and configuration simple, fast, and accessible from any web browser. 
+<img src="docs/logo.png" alt="Flect" width="96">
 
----
+# Flect
 
-## 🌟 Features
+*Wireless Android screen mirroring for Windows — from your browser.*
 
-*   **Zero Manual Setup:** One-click automated download and extraction of compatible `scrcpy` binaries (v3.3.4 SDL2) directly through the web UI.
-*   **Modern Interactive Dashboard:** Sleek dark-mode interface featuring dynamic state indicators, real-time connection logs, and responsive layouts.
-*   **Android 11+ Wireless Pairing Wizard:** Interactive pairing tool that handles the complex `adb pair` authentication handshake seamlessly.
-*   **Automatic Device Lifecycle Sync:** Real-time monitoring of connected ADB devices. It auto-detects new wireless debugging ports and auto-selects active devices.
-*   **Rich Quality & Control Options:**
-    *   Quality Presets (Low, High, Ultra) and custom resolution limits.
-    *   Control flags: Keep device awake, turn physical screen off while mirroring, show touch indicators, and disable audio.
-    *   One-click screen recording saved directly to a local `/recordings` folder.
-*   **Robust Launch Engine:** Includes special workarounds to bypass headless session isolation, ensuring the graphical SDL mirror window always appears on the active interactive desktop.
+[![License: MIT](https://img.shields.io/github/license/Llewellyn500/flect?style=flat-square&color=7c3aed)](LICENSE)
+[![Node.js](https://img.shields.io/node/v/flect?style=flat-square)](https://nodejs.org/)
+[![CI](https://img.shields.io/github/actions/workflow/status/Llewellyn500/flect/ci.yml?branch=main&style=flat-square&label=build)](https://github.com/Llewellyn500/flect/actions/workflows/ci.yml)
+[![Issues](https://img.shields.io/github/issues/Llewellyn500/flect?style=flat-square)](https://github.com/Llewellyn500/flect/issues)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
----
+[Features](#features) · [Getting started](#getting-started) · [Usage](#usage) · [Scripts](#scripts) · [Contributing](#contributing)
 
-## 🛠️ How It Works (Under the Hood)
-
-### 1. Interactive Session Escape (Headless Isolation Fix)
-When node servers are launched under background tasks, scripts, or system services (Session 0), any graphical process they spawn directly inherits headless constraints, meaning the window runs silently in the background and is invisible to the user.
-*   **Solution:** Flect writes a temporary batch file (`_flect_launch.bat`) with the correct connection settings and launches it via **`explorer.exe`**. This forces the execution of the command prompt and `scrcpy.exe` inside the active user's desktop session (Session 1), causing the SDL2 window to render successfully.
-*   **Clean Closing:** The batch file is executed with the `scrcpy.exe --pause-on-exit=if-error` flag. If mirroring succeeds, the helper terminal window closes automatically when mirroring ends. If it fails, the terminal pauses so the user can see the error logs.
-
-### 2. TLS Target Auto-Resolution
-In Android 11+, wireless debugging advertises two network interfaces (a standard pairing/connection port and an mDNS TLS port, e.g., `adb-XYZ._adb-tls-connect._tcp`). Specifying the TLS name directly in `scrcpy` causes immediate crashes.
-*   **Solution:** The backend interceptor queries `adb devices`, parses the active IP/port mappings, and dynamically auto-resolves any TLS target selection to its standard IP:port equivalent before spawning `scrcpy`.
-
-### 3. Interactive Pairing Handshake
-The `adb pair` command requires manual keyboard input to submit the 6-digit pairing code. This normally hangs Node's standard asynchronous pipelines.
-*   **Solution:** Flect spawns `adb pair` as an interactive process and writes the pairing code directly to the child process's standard input (`stdin`) immediately upon startup.
+</div>
 
 ---
 
-## 🚀 How to Run
+**Flect** is an open-source local web dashboard for [scrcpy](https://github.com/Genymobile/scrcpy) on Windows. Pair over Wi‑Fi, connect in a click, mirror your screen, tweak quality live, record sessions, and capture previews — no USB cable required.
+
+> **Note:** Flect runs on `localhost` only. It is a desktop companion app, not a hosted service.
+
+<br>
+
+## Features
+
+- **One-click setup** — Download and extract official scrcpy Windows binaries from the UI
+- **Wireless pairing wizard** — Handles the `adb pair` handshake so you never touch a terminal
+- **Device discovery** — Auto-scan the network for wireless debugging endpoints + manual rescan
+- **Full mirroring controls** — Resolution, bitrate, FPS, stay awake, turn screen off, always on top, touch indicators, audio toggle
+- **Live settings** — Apply supported options while a session is already running
+- **Screen recording** — Save MP4s to `./recordings` with graceful stop so files stay playable
+- **Screen preview** — Capture a still snapshot in the phone mockup; auto-saved to `./screenshots`
+- **Device memory** — Remembers human-readable device names across reconnects
+- **Real-time dashboard** — Dark UI, toast notifications, and live logs over SSE
+
+<br>
+
+## Getting started
 
 ### Prerequisites
-*   [Node.js](https://nodejs.org/) installed (v16+ recommended).
-*   An Android phone on the same Wi-Fi network as the PC.
-*   **Wireless Debugging** enabled on your phone (found under *Settings* -> *Developer Options*).
 
-### Setup and Start
-1.  **Clone or Copy** this folder to your PC.
-2.  Open a terminal (PowerShell or Command Prompt) in the directory:
-    ```bash
-    cd C:\path\to\wireshare
-    ```
-3.  Install the lightweight Express server dependency:
-    ```bash
-    npm install
-    ```
-4.  Launch the server:
-    ```bash
-    npm start
-    ```
-5.  The server will spin up and **automatically open your web browser** to `http://localhost:3000`.
+| Requirement | Details |
+|-------------|---------|
+| **OS** | Windows 10/11 |
+| **Runtime** | [Node.js 18+](https://nodejs.org/) |
+| **Network** | PC and phone on the same Wi‑Fi |
+| **Phone** | Android 11+ with **Wireless debugging** enabled |
 
----
+Enable wireless debugging on your phone:
 
-## 📱 Quick Connection Guide
+`Settings → Developer options → Wireless debugging`
 
-1.  **Download Scrcpy:** On your first launch, click **Download Scrcpy**. The app will download, extract, and configure the binaries in the `scrcpy-win64` subfolder automatically.
-2.  **Pair Your Phone (Android 11+):**
-    *   Tap *Wireless Debugging* on your phone, then click **Pair device with pairing code**.
-    *   In the **Pairing Wizard** tab, enter the IP, Port, and 6-digit Pairing Code shown on your phone.
-    *   Click **Pair Device**.
-3.  **Connect Wirelessly:**
-    *   Look at your phone screen for the main **IP address and Port** under *Wireless Debugging*.
-    *   Enter them into the **Connect** tab in the web UI.
-    *   Click **Connect**.
-4.  **Mirror:**
-    *   The phone will appear in the **Active ADB Devices** list on the right side.
-    *   Click it to select it, configure your settings (e.g. Always on top, Turn screen off), and click **Start Mirroring**!
+### Install
 
----
-
-## ⬆️ Update Scrcpy
-
-To update local `scrcpy-win64` to the latest official Windows release:
+**Option A — Git clone**
 
 ```bash
-npm run update:scrcpy
+git clone https://github.com/Llewellyn500/flect.git
+cd flect
+npm install
+npm start
 ```
 
-What this does:
-* Queries the latest `Genymobile/scrcpy` GitHub release.
-* Downloads the latest `scrcpy-win64-v*.zip`.
-* Replaces the local `scrcpy-win64` folder safely (with rollback if replacement fails).
+**Option B — Windows launcher**
 
-## 📁 Project Structure
+Double-click [`run.bat`](run.bat). It installs dependencies if needed and starts the server.
 
-*   `server.js`: The Express server and ADB/Scrcpy process management backend.
-*   `public/`: Frontend user interface:
-    *   `index.html`: Dashboard layout.
-    *   `style.css`: Clean, glassmorphism dark-themed styling.
-    *   `app.js`: Frontend state machine, SSE log receiver, and API controller.
-*   `scrcpy-win64/`: Auto-generated directory containing local `scrcpy` and `adb` executables.
-*   `recordings/`: Auto-created directory where screen recordings are saved as MP4s.
+Open **[http://localhost:3000](http://localhost:3000)** in your browser.
+
+<br>
+
+## Usage
+
+### 1. Download scrcpy
+
+On first launch, click **Download Scrcpy** in the dashboard. Binaries are saved to `scrcpy-win64/` (gitignored — not committed to the repo).
+
+### 2. Pair your phone (first time only)
+
+1. On your phone: *Wireless debugging → Pair device with pairing code*
+2. In Flect: open the **Pairing Wizard** tab
+3. Enter the IP, port, and 6-digit code shown on your phone
+4. Click **Pair Device**
+
+### 3. Connect wirelessly
+
+1. On your phone's main **Wireless debugging** screen, note the IP and port (this port differs from the pairing port)
+2. Enter them in the **Connect** section
+3. Click **Connect**
+
+### 4. Start mirroring
+
+1. Select your device in **Active ADB Devices**
+2. Adjust settings (quality preset, stay awake, record, etc.)
+3. Click **Start Mirroring**
+
+Recordings land in `./recordings`. Preview captures land in `./screenshots`.
+
+<br>
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm start` | Start the Flect web dashboard |
+| `npm run check` | Syntax-check server, client, and scripts |
+| `npm run update:scrcpy` | Update `scrcpy-win64/` to the latest official release |
+| `npm run generate:assets` | Regenerate favicons and PWA icons from `public/images/logo.png` |
+
+<br>
+
+## How it works
+
+<details>
+<summary><strong>Headless session escape</strong></summary>
+
+<br>
+
+Background Node processes can spawn GUI apps in Windows Session 0 (invisible to the user). Flect launches scrcpy through `explorer.exe` and a temporary `_flect_launch.bat`, forcing the mirror window onto your interactive desktop.
+
+</details>
+
+<details>
+<summary><strong>TLS target resolution</strong></summary>
+
+<br>
+
+Android wireless debugging advertises both IP:port and mDNS TLS endpoints. Flect resolves TLS-style device IDs to their working IP:port before launching scrcpy.
+
+</details>
+
+<details>
+<summary><strong>Pairing handshake</strong></summary>
+
+<br>
+
+`adb pair` requires stdin for the 6-digit code. Flect spawns the process and writes the code immediately — no manual terminal step.
+
+</details>
+
+<details>
+<summary><strong>Recording finalization</strong></summary>
+
+<br>
+
+Stopping a recording closes the scrcpy window gracefully (with a longer grace period) so the MP4 `moov` atom is written and files stay playable.
+
+</details>
+
+<br>
+
+## Project structure
+
+```
+flect/
+├── public/              # Dashboard (HTML, CSS, JS, icons)
+│   └── images/logo.png  # Canonical logo — run generate:assets after edits
+├── server.js            # Express API + ADB/scrcpy process manager
+├── scripts/
+│   ├── update-scrcpy.js
+│   └── generate-brand-assets.js
+├── run.bat              # Windows one-click launcher
+├── recordings/          # Session MP4s (gitignored)
+├── screenshots/         # Preview PNGs (gitignored)
+└── scrcpy-win64/        # Downloaded binaries (gitignored)
+```
+
+<br>
+
+## Development
+
+```bash
+git clone https://github.com/Llewellyn500/flect.git
+cd flect
+npm install
+npm start
+```
+
+Run checks before opening a PR:
+
+```bash
+npm run check
+```
+
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full workflow, code guidelines, and issue templates.
+
+<br>
+
+## Contributing
+
+Contributions are welcome — bugs, features, docs, and UI polish.
+
+- [Report a bug](https://github.com/Llewellyn500/flect/issues/new?template=bug_report.yml)
+- [Request a feature](https://github.com/Llewellyn500/flect/issues/new?template=feature_request.yml)
+- [Read the contributing guide](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+
+If Flect saves you time, consider **starring the repo** — it helps others discover the project.
+
+<br>
+
+## Security
+
+Flect is designed for **local use only**. Do not expose port `3000` to the public internet or bind it to `0.0.0.0` without understanding the risks.
+
+To report a vulnerability privately, see **[SECURITY.md](SECURITY.md)**.
+
+<br>
+
+## Acknowledgements
+
+Flect is built on top of excellent open-source tools:
+
+- [scrcpy](https://github.com/Genymobile/scrcpy) by Genymobile — screen mirroring engine
+- [Android Debug Bridge (adb)](https://developer.android.com/tools/adb) — device communication
+
+<br>
+
+## License
+
+[MIT](LICENSE) © 2026 [Llewellyn Adonteng Paintsil](https://github.com/Llewellyn500)

@@ -1,15 +1,42 @@
 {
   "name": "flect",
   "version": "1.0.0",
-  "description": "Wireless Scrcpy Screen Sharing GUI",
+  "description": "Open-source web dashboard for wireless Android screen mirroring with scrcpy on Windows.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "update:scrcpy": "node scripts/update-scrcpy.js"
+    "check": "node --check server.js && node --check public/app.js && node --check scripts/update-scrcpy.js && node --check scripts/generate-brand-assets.js",
+    "update:scrcpy": "node scripts/update-scrcpy.js",
+    "generate:assets": "node scripts/generate-brand-assets.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Llewellyn500/flect.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Llewellyn500/flect/issues"
+  },
+  "homepage": "https://github.com/Llewellyn500/flect#readme",
+  "keywords": [
+    "scrcpy",
+    "android",
+    "screen-mirroring",
+    "adb",
+    "wireless-debugging",
+    "windows",
+    "express",
+    "open-source"
+  ],
+  "author": "Llewellyn Adonteng Paintsil <Llewellynpaintsil34@gmail.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "express": "^4.19.2"
   },
-  "author": "",
-  "license": "ISC"
+  "devDependencies": {
+    "sharp": "^0.34.5",
+    "to-ico": "^1.1.5"
+  }
 }
