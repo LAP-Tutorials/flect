@@ -7,12 +7,11 @@
 *Wireless Android screen mirroring for Windows — from your browser.*
 
 [![License: Non-Commercial](https://img.shields.io/badge/License-Non--Commercial-purple?style=flat-square)](LICENSE)
-[![Node.js](https://img.shields.io/node/v/flect?style=flat-square)](https://nodejs.org/)
 [![CI](https://img.shields.io/github/actions/workflow/status/Llewellyn500/flect/ci.yml?branch=main&style=flat-square&label=build)](https://github.com/Llewellyn500/flect/actions/workflows/ci.yml)
 [![Issues](https://img.shields.io/github/issues/Llewellyn500/flect?style=flat-square)](https://github.com/Llewellyn500/flect/issues)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
-[Features](#features) · [Getting started](#getting-started) · [Usage](#usage) · [Scripts](#scripts) · [Contributing](#contributing)
+[Preview](#preview) · [Showcase](#showcase) · [Features](#features) · [Getting started](#getting-started) · [Usage](#usage) · [Scripts](#scripts) · [Contributing](#contributing)
 
 </div>
 
@@ -21,6 +20,20 @@
 **Flect** is an open-source local web dashboard for [scrcpy](https://github.com/Genymobile/scrcpy) on Windows. Pair over Wi‑Fi, connect in a click, mirror your screen, tweak quality live, record sessions, and capture previews — no USB cable required.
 
 > **Note:** Flect runs on `localhost` only. It is a desktop companion app, not a hosted service.
+
+<br>
+
+## Preview
+
+<p align="center">
+  <img src="public/images/screenshot.png" alt="Flect dashboard showing wireless Android mirroring controls" width="900">
+</p>
+
+<br>
+
+## Showcase
+
+https://github.com/LAP-Tutorials/flect/public/flect-demo.mp4
 
 <br>
 
