@@ -33,9 +33,7 @@
 
 ## Showcase
 
-https://github.com/LAP-Tutorials/flect/blob/main/public/flect-demo.mp4
-
-<br>
+https://github.com/user-attachments/assets/f3303a33-21b9-41c9-b441-f745132f3007
 
 ## Features
 
