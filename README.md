@@ -33,7 +33,7 @@
 
 ## Showcase
 
-https://github.com/LAP-Tutorials/flect/public/flect-demo.mp4
+https://github.com/LAP-Tutorials/flect/blob/main/public/flect-demo.mp4
 
 <br>
 
