@@ -41,15 +41,17 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           SHORT_SHA="${GITHUB_SHA::7}"
-          STAMP="$(date -u +'%Y%m%d-%H%M%S')"
-          TAG="v${VERSION}-${STAMP}-${SHORT_SHA}"
-          ASSET_NAME="flect-${TAG}-windows.zip"
+          BUILT_AT="$(date -u +'%Y-%m-%d %H:%M UTC')"
+          TAG="windows-${GITHUB_RUN_NUMBER}"
+          ASSET_NAME="flect-windows.zip"
 
           {
             echo "version=${VERSION}"
             echo "tag=${TAG}"
             echo "asset_name=${ASSET_NAME}"
-            echo "title=Flect ${TAG}"
+            echo "built_at=${BUILT_AT}"
+            echo "short_sha=${SHORT_SHA}"
+            echo "title=Flect for Windows - Build ${GITHUB_RUN_NUMBER}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create Windows zip
@@ -58,7 +60,7 @@ jobs:
           mkdir -p dist
           git archive \
             --format=zip \
-            --prefix="flect-${{ steps.meta.outputs.tag }}-windows/" \
+            --prefix="flect-windows/" \
             --output="dist/${{ steps.meta.outputs.asset_name }}" \
             HEAD
           ls -lh "dist/${{ steps.meta.outputs.asset_name }}"
@@ -67,16 +69,24 @@ jobs:
         shell: bash
         run: |
           cat > release-notes.md <<'EOF'
-          ## Windows download
+          ## Download Flect for Windows
 
-          Download the Windows ZIP attached to this release, extract it, then double-click `run.bat`.
+          Download `flect-windows.zip` from the assets below, extract it, then double-click `run.bat`.
 
-          The package includes the Flect web dashboard and bundled `scrcpy`/`adb` binaries. Node.js 18+ is still required; the launcher installs npm dependencies automatically on first run.
+          This Windows package includes the Flect web dashboard, the one-click launcher, and bundled `scrcpy`/`adb` binaries. Node.js 18+ is still required; the launcher installs npm dependencies automatically on first run.
+
+          ## Requirements
+
+          - Windows 10/11
+          - Node.js 18 or newer
+          - Android 11+ with Wireless debugging enabled
 
           ## Build
 
+          - Version: `${{ steps.meta.outputs.version }}`
           - Source branch: `${{ github.ref_name }}`
-          - Source commit: `${{ github.sha }}`
+          - Source commit: `${{ steps.meta.outputs.short_sha }}`
+          - Built: `${{ steps.meta.outputs.built_at }}`
           EOF
 
       - name: Create GitHub release

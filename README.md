@@ -11,7 +11,7 @@
 [![Issues](https://img.shields.io/github/issues/Llewellyn500/flect?style=flat-square)](https://github.com/Llewellyn500/flect/issues)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
-[Preview](#preview) · [Showcase](#showcase) · [Features](#features) · [Getting started](#getting-started) · [Usage](#usage) · [Scripts](#scripts) · [Contributing](#contributing)
+[Download](#download) · [Preview](#preview) · [Showcase](#showcase) · [Features](#features) · [Getting started](#getting-started) · [Usage](#usage) · [Scripts](#scripts) · [Contributing](#contributing)
 
 </div>
 
@@ -20,6 +20,14 @@
 **Flect** is an open-source local web dashboard for [scrcpy](https://github.com/Genymobile/scrcpy) on Windows. Pair over Wi‑Fi, connect in a click, mirror your screen, tweak quality live, record sessions, and capture previews — no USB cable required.
 
 > **Note:** Flect runs on `localhost` only. It is a desktop companion app, not a hosted service.
+
+<br>
+
+## Download
+
+For the easiest Windows install, visit the **[GitHub Releases page](https://github.com/LAP-Tutorials/flect/releases/latest)** and download the latest `flect-windows.zip` file.
+
+Extract the zip, open the folder, and double-click `run.bat`. The Windows release includes Flect and the bundled `scrcpy`/`adb` tools. You still need [Node.js 18+](https://nodejs.org/) installed.
 
 <br>
 
@@ -66,9 +74,9 @@ Enable wireless debugging on your phone:
 
 ### Install
 
-**Option A — Windows launcher (recommended)**
+**Option A - Windows release zip (recommended)**
 
-Double-click [`run.bat`](run.bat). It installs dependencies if needed and starts the server.
+Download the latest `flect-windows.zip` from the **[GitHub Releases page](https://github.com/LAP-Tutorials/flect/releases/latest)**, extract it, then double-click `run.bat`. It installs dependencies if needed and starts the server.
 
 **Option B — Git clone**
 
