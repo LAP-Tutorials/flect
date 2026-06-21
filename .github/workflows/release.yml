@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-zip:
+    name: Build Windows release zip
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run checks
+        run: npm run check
+
+      - name: Prepare release metadata
+        id: meta
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          STAMP="$(date -u +'%Y%m%d-%H%M%S')"
+          TAG="v${VERSION}-${STAMP}-${SHORT_SHA}"
+          ASSET_NAME="flect-${TAG}-windows.zip"
+
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "asset_name=${ASSET_NAME}"
+            echo "title=Flect ${TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create Windows zip
+        shell: bash
+        run: |
+          mkdir -p dist
+          git archive \
+            --format=zip \
+            --prefix="flect-${{ steps.meta.outputs.tag }}-windows/" \
+            --output="dist/${{ steps.meta.outputs.asset_name }}" \
+            HEAD
+          ls -lh "dist/${{ steps.meta.outputs.asset_name }}"
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## Windows download
+
+          Download the Windows ZIP attached to this release, extract it, then double-click `run.bat`.
+
+          The package includes the Flect web dashboard and bundled `scrcpy`/`adb` binaries. Node.js 18+ is still required; the launcher installs npm dependencies automatically on first run.
+
+          ## Build
+
+          - Source branch: `${{ github.ref_name }}`
+          - Source commit: `${{ github.sha }}`
+          EOF
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            "dist/${{ steps.meta.outputs.asset_name }}#Flect Windows ZIP" \
+            --target "${{ github.sha }}" \
+            --title "${{ steps.meta.outputs.title }}" \
+            --notes-file release-notes.md \
+            --latest
