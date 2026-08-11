@@ -3,6 +3,7 @@ const { spawn, exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const { normalizePairingRequest, runAdbPair } = require('./lib/adb-pair');
 
 const app = express();
 const PORT = 3000;
@@ -115,11 +116,13 @@ function extractHostFromAdbId(adbId) {
 // Get the path to Scrcpy binaries
 function getPaths() {
   const scrcpyDir = path.join(__dirname, 'scrcpy-win64');
+  const adbPath = path.join(scrcpyDir, 'adb.exe');
+  const scrcpyPath = path.join(scrcpyDir, 'scrcpy.exe');
   return {
     dir: scrcpyDir,
-    adb: path.join(scrcpyDir, 'adb.exe'),
-    scrcpy: path.join(scrcpyDir, 'scrcpy.exe'),
-    exists: fs.existsSync(scrcpyDir) && fs.existsSync(path.join(scrcpyDir, 'scrcpy.exe'))
+    adb: adbPath,
+    scrcpy: scrcpyPath,
+    exists: fs.existsSync(scrcpyDir) && fs.existsSync(adbPath) && fs.existsSync(scrcpyPath)
   };
 }
 
@@ -547,10 +550,10 @@ app.post('/api/download', (req, res) => {
   downloadProgress = { active: true, progress: 0, downloaded: 0, total: 0 };
   broadcastEvent('status-change', { downloadState: downloadProgress });
 
-  const zipUrl = 'https://github.com/Genymobile/scrcpy/releases/download/v4.0/scrcpy-win64-v4.0.zip';
+  const zipUrl = 'https://github.com/Genymobile/scrcpy/releases/download/v4.1/scrcpy-win64-v4.1.zip';
   const zipPath = path.join(__dirname, 'scrcpy.zip');
 
-  logMessage(`Starting download of Scrcpy v4.0 from ${zipUrl}...`);
+  logMessage(`Starting download of Scrcpy v4.1 from ${zipUrl}...`);
 
   const file = fs.createWriteStream(zipPath);
 
@@ -655,86 +658,44 @@ app.post('/api/kill-server', async (req, res) => {
 });
 
 // ADB PAIR (Wireless Debugging Android 11+)
-app.post('/api/pair', (req, res) => {
-  const { ip, port, code } = req.body;
-
-  if (!ip || !port || !code) {
-    return res.status(400).json({ error: 'IP, Port, and Pairing Code are required.' });
+app.post('/api/pair', async (req, res) => {
+  let pairing;
+  try {
+    pairing = normalizePairingRequest(req.body);
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error.message });
   }
 
   const paths = getPaths();
   if (!paths.exists) {
-    return res.status(400).json({ error: 'Scrcpy not found. Please install first.' });
+    return res.status(400).json({ success: false, error: 'Scrcpy or ADB is missing. Please install it first.' });
   }
 
-  logMessage(`Attempting to pair with ${ip}:${port} using code ${code}...`);
+  logMessage(`Attempting to pair with ${pairing.endpoint}...`);
 
-  // Spawn adb pair as an interactive process
-  const adbProcess = spawn(paths.adb, [ 'pair', `${ip}:${port}` ], { cwd: paths.dir });
-
-  let output = '';
-  let errorOutput = '';
-  let completed = false;
-  let codeSent = false;
-
-  // Send the pairing code immediately to stdin.
-  // In Node.js, stdin writes are buffered by the OS. As soon as the spawned adb process 
-  // tries to read from standard input, it will immediately consume the pairing code 
-  // without hanging or waiting for stdout flushes.
   try {
-    logMessage('Sending pairing code to process stdin immediately...');
-    adbProcess.stdin.write(`${code}\n`);
-    codeSent = true;
-  } catch (stdinErr) {
-    logMessage(`Error writing code to stdin immediately: ${stdinErr.message}`);
-  }
-
-  // Set safety timeout of 20 seconds
-  const timeout = setTimeout(() => {
-    if (!completed) {
-      completed = true;
-      adbProcess.kill();
-      logMessage('Pairing process timed out.');
-      res.status(500).json({ success: false, error: 'Pairing timed out. Make sure the pairing screen is still open and you are on the same Wi-Fi.' });
-    }
-  }, 20000);
-
-  adbProcess.stdout.on('data', (data) => {
-    const str = data.toString();
-    output += str;
-    logMessage(`adb pair: ${str.trim()}`);
-
-    // Fallback: feed pairing code if prompted and we haven't sent it yet
-    if (str.includes('Enter pairing code') && !codeSent && !completed) {
-      logMessage('Feeding pairing code via fallback...');
-      try {
-        adbProcess.stdin.write(`${code}\n`);
-        codeSent = true;
-      } catch (err) {
-        logMessage(`Fallback stdin write failed: ${err.message}`);
+    const result = await runAdbPair({
+      adbPath: paths.adb,
+      cwd: paths.dir,
+      endpoint: pairing.endpoint,
+      code: pairing.code,
+      onOutput: ({ stream, text }) => {
+        const cleanText = text.trim();
+        if (cleanText) {
+          logMessage(`adb pair${stream === 'stderr' ? ' error' : ''}: ${cleanText}`);
+        }
       }
-    }
-  });
+    });
 
-  adbProcess.stderr.on('data', (data) => {
-    const str = data.toString();
-    errorOutput += str;
-    logMessage(`adb pair error: ${str.trim()}`);
-  });
-
-  adbProcess.on('close', (code) => {
-    if (completed) return;
-    completed = true;
-    clearTimeout(timeout);
-
-    if (code === 0 || output.includes('Successfully paired') || output.includes('paired to')) {
-      logMessage(`Successfully paired to ${ip}:${port}!`);
-      res.json({ success: true, message: output || 'Successfully paired' });
-    } else {
-      logMessage(`Pairing failed with code ${code}.`);
-      res.status(500).json({ success: false, error: errorOutput || output || 'Pairing failed. Check IP/Port and Pairing Code.' });
-    }
-  });
+    logMessage(`Successfully paired to ${pairing.endpoint}!`);
+    return res.json({ success: true, message: result.message });
+  } catch (error) {
+    logMessage(`Pairing failed for ${pairing.endpoint}: ${error.message}`);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Pairing failed. Check the IP, port, and fresh pairing code.'
+    });
+  }
 });
 
 // ADB CONNECT
@@ -906,11 +867,21 @@ app.post('/api/start-scrcpy', async (req, res) => {
     logMessage(`Pre-launch cleanup warning: ${preLaunchStop.output}`);
   }
 
-  // Write a batch file that launches scrcpy directly with pause-on-exit if error
+  // Explorer hands the batch file to the interactive Windows desktop. Keep a
+  // startup log and verify that scrcpy actually remains alive before reporting
+  // success; an Explorer access error previously looked like a successful
+  // launch and was only corrected by the process poll several seconds later.
+  const launchLogPath = path.join(paths.dir, '_flect_scrcpy.log');
+  try {
+    if (fs.existsSync(launchLogPath)) fs.unlinkSync(launchLogPath);
+  } catch (error) {
+    logMessage(`Could not clear previous scrcpy startup log: ${error.message}`);
+  }
+
   const batContent = [
     '@echo off',
     `cd /d "${paths.dir}"`,
-    `scrcpy.exe --pause-on-exit=if-error ${args.join(' ')}`,
+    `scrcpy.exe ${args.join(' ')} > "${launchLogPath}" 2>&1`,
     ''
   ].join('\r\n');
 
@@ -918,22 +889,41 @@ app.post('/api/start-scrcpy', async (req, res) => {
   fs.writeFileSync(batPath, batContent);
 
   // Launch via explorer.exe to force execution in the interactive user desktop.
-  // On Windows this can return a non-zero exit code even when the .bat starts successfully.
-  exec(`explorer.exe "${batPath}"`, { cwd: paths.dir }, (err) => {
-    if (err) {
-      const message = String(err.message || '');
-      const likelyExplorerQuirk = message.toLowerCase().includes('explorer.exe');
-      if (likelyExplorerQuirk) {
-        // Do not surface the raw explorer.exe error text ("Command failed"),
-        // because scrcpy may still have launched successfully.
-        logMessage('Scrcpy launcher returned a non-zero code (Windows quirk). Mirroring may still be active.');
+  let explorerError = '';
+  await new Promise((resolve) => {
+    exec(`explorer.exe "${batPath}"`, { cwd: paths.dir }, (err, stdout, stderr) => {
+      if (err) {
+        explorerError = String(stderr || err.message || '').trim();
+        logMessage(`Scrcpy desktop launcher reported an error: ${explorerError}`);
       } else {
-        logMessage(`Scrcpy launch failed: ${message}`);
+        logMessage('Scrcpy process launched via the interactive Windows desktop.');
       }
-    } else {
-      logMessage('Scrcpy process launched via explorer.exe directly.');
-    }
+      resolve();
+    });
   });
+
+  // ARM64 Windows may take a little longer while translating the x64 client.
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  const launchVerified = await isScrcpyRunning();
+  if (!launchVerified) {
+    let scrcpyLog = '';
+    try {
+      scrcpyLog = fs.existsSync(launchLogPath) ? fs.readFileSync(launchLogPath, 'utf8').trim() : '';
+    } catch (error) {
+      logMessage(`Could not read scrcpy startup log: ${error.message}`);
+    }
+
+    const failureDetail = scrcpyLog || explorerError || 'scrcpy exited before creating the mirror window.';
+    const launchError = explorerError.toLowerCase().includes('access is denied')
+      ? 'Windows blocked the desktop launcher. Close Flect and start it with run.bat, then try again.'
+      : failureDetail;
+    logMessage(`Scrcpy failed to start: ${failureDetail}`);
+    return res.status(500).json({ success: false, error: launchError });
+  }
+
+  if (explorerError) {
+    logMessage('Scrcpy is running despite the Explorer return code; startup was verified by process state.');
+  }
 
   // Track active mirroring state and device so UI can show the actual mirrored target.
   scrcpyProcess = { active: true, deviceId: target || null, recordingEnabled: !!settings.record, recordingFile, startedAt: Date.now() };

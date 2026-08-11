@@ -8,7 +8,13 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    name: Check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
     steps:
       - uses: actions/checkout@v4
 
@@ -22,3 +28,13 @@ jobs:
 
       - name: Syntax and sanity checks
         run: npm run check
+
+      - name: Pairing tests
+        run: npm test
+
+      - name: Smoke-test bundled Windows runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\scrcpy-win64\scrcpy.exe --version
+          .\scrcpy-win64\adb.exe version

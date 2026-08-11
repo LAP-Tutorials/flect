@@ -802,7 +802,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       btnPair.disabled = true;
       btnPair.innerText = 'Pairing...';
-      addTerminalLog(`Initiating pairing to ${ip}:${port} with code ${code}...`, 'system');
+      addTerminalLog(`Initiating pairing to ${ip}:${port}...`, 'system');
 
       const res = await fetch('/api/pair', {
         method: 'POST',

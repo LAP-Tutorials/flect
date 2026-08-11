@@ -1,11 +1,12 @@
 {
   "name": "flect",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Open-source web dashboard for wireless Android screen mirroring with scrcpy on Windows.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check public/app.js && node --check scripts/update-scrcpy.js && node --check scripts/generate-brand-assets.js",
+    "check": "node --check server.js && node --check lib/adb-pair.js && node --check public/app.js && node --check scripts/update-scrcpy.js && node --check scripts/generate-brand-assets.js",
+    "test": "node --test test/adb-pair.test.js",
     "update:scrcpy": "node scripts/update-scrcpy.js",
     "generate:assets": "node scripts/generate-brand-assets.js"
   },

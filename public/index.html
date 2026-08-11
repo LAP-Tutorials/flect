@@ -160,13 +160,13 @@
                   </div>
                   <div class="form-group flex-1">
                     <label for="pairPort">Port</label>
-                    <input type="text" id="pairPort" placeholder="e.g. 39485" value="">
+                    <input type="text" id="pairPort" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 39485" value="">
                   </div>
                 </div>
                 <div class="form-row">
                   <div class="form-group flex-2">
                     <label for="pairCode">Pairing Code (6 digits)</label>
-                    <input type="text" id="pairCode" placeholder="e.g. 123456" value="">
+                    <input type="text" id="pairCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="e.g. 123456" value="">
                   </div>
                   <div class="form-group align-end flex-1">
                     <button id="btnPair" class="btn btn-secondary btn-block">Pair Device</button>

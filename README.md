@@ -133,7 +133,7 @@ Recordings land in `./recordings`. Preview captures land in `./screenshots`.
 
 <br>
 
-Background Node processes can spawn GUI apps in Windows Session 0 (invisible to the user). Flect launches scrcpy through `explorer.exe` and a temporary `_flect_launch.bat`, forcing the mirror window onto your interactive desktop.
+Background Node processes can spawn GUI apps in Windows Session 0 (invisible to the user). Flect launches scrcpy through `explorer.exe` and a temporary `_flect_launch.bat`, forcing the mirror window onto your interactive desktop. It now verifies the real scrcpy process before reporting success and preserves startup diagnostics when Windows blocks the launch.
 
 </details>
 
@@ -151,7 +151,9 @@ Android wireless debugging advertises both IP:port and mDNS TLS endpoints. Flect
 
 <br>
 
-`adb pair` requires stdin for the 6-digit code. Flect spawns the process and writes the code immediately — no manual terminal step.
+Flect passes the 6-digit code through ADB's supported non-interactive pairing command. This avoids console/stdin compatibility problems when Windows runs the bundled ADB binary through emulation on ARM64 PCs.
+
+The bundled Windows runtime uses scrcpy 4.1 with SDL3 and ADB 37.0.0 for current Windows and ARM64-emulation compatibility.
 
 </details>
 
