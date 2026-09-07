@@ -5,8 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check lib/adb-pair.js && node --check lib/adb-qr.js && node --check public/app.js && node --check scripts/update-scrcpy.js && node --check scripts/generate-brand-assets.js && node --check scripts/release.js",
-    "test": "node --test test/adb-pair.test.js test/adb-qr.test.js test/pairing-ui.test.js",
+    "check": "node --check server.js && node --check lib/adb-pair.js && node --check lib/adb-qr.js && node --check public/app.js && node --check scripts/update-scrcpy.js && node --check scripts/generate-brand-assets.js && node --check scripts/release.js && node --check scripts/release-notes.js",
+    "test": "node --test test/adb-pair.test.js test/adb-qr.test.js test/pairing-ui.test.js test/release-notes.test.js",
     "release": "node scripts/release.js",
     "update:scrcpy": "node scripts/update-scrcpy.js",
     "generate:assets": "node scripts/generate-brand-assets.js"

@@ -85,14 +85,10 @@ jobs:
           $hash = (Get-FileHash "dist/${{ steps.meta.outputs.asset }}" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  ${{ steps.meta.outputs.asset }}" | Set-Content "dist/${{ steps.meta.outputs.asset }}.sha256"
 
-      - name: Write release introduction
+      - name: Build release notes from changelog
         shell: pwsh
         run: |
-          @'
-          Download the Windows ZIP, extract it, then double-click `run.bat`.
-
-          The package contains Flect and the bundled scrcpy/ADB runtime. Node.js 18 or newer is required. It supports Windows 10/11 on x64 and Windows 11 on ARM64 through Windows x64 app emulation.
-          '@ | Set-Content release-introduction.md
+          node scripts/release-notes.js '${{ steps.meta.outputs.version }}' --output release-notes.md
 
       - name: Publish GitHub release
         shell: pwsh
@@ -106,7 +102,7 @@ jobs:
             "dist/${{ steps.meta.outputs.asset }}.sha256#SHA-256 checksum",
             '--target', $env:GITHUB_SHA,
             '--title', 'Flect ${{ steps.meta.outputs.tag }}',
-            '--notes-file', 'release-introduction.md',
+            '--notes-file', 'release-notes.md',
             '--generate-notes',
             '--fail-on-no-commits'
           )

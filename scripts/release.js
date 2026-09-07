@@ -62,6 +62,8 @@ try {
   const existing = spawnSync('gh', ['release', 'view', tag], { cwd: root, stdio: 'ignore' });
   if (existing.status === 0) fail(`release ${tag} already exists. Increase the package version first.`);
 
+  run(process.execPath, [path.join(root, 'scripts', 'release-notes.js'), version], { capture: true });
+
   console.log(`Preparing Flect ${tag}${prerelease ? ' prerelease' : ''}...`);
   runNpm(['run', 'check']);
   runNpm(['test']);
