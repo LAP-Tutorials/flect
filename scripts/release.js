@@ -25,6 +25,14 @@ function capture(command, args) {
   return run(command, args, { capture: true });
 }
 
+function runNpm(args) {
+  const npmEntryPoint = process.env.npm_execpath;
+  if (!npmEntryPoint) {
+    fail('run the release helper through npm run release.');
+  }
+  return run(process.execPath, [npmEntryPoint, ...args]);
+}
+
 function fail(message) {
   console.error(`Release stopped: ${message}`);
   process.exit(1);
@@ -35,7 +43,6 @@ if (unknownArguments.length) fail(`unknown option ${unknownArguments[ 0 ]}`);
 
 const version = require(path.join(root, 'package.json')).version;
 const tag = `v${version}`;
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 try {
   if (capture('git', ['branch', '--show-current']) !== 'main') {
@@ -56,8 +63,8 @@ try {
   if (existing.status === 0) fail(`release ${tag} already exists. Increase the package version first.`);
 
   console.log(`Preparing Flect ${tag}${prerelease ? ' prerelease' : ''}...`);
-  run(npmCommand, ['run', 'check']);
-  run(npmCommand, ['test']);
+  runNpm(['run', 'check']);
+  runNpm(['test']);
 
   if (dryRun) {
     console.log(`Dry run passed. ${tag} is ready to publish.`);
