@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/f3303a33-21b9-41c9-b441-f745132f3007
 ## Features
 
 - **Bundled scrcpy** — Official Windows scrcpy + adb binaries included in `scrcpy-win64/`
-- **Wireless pairing wizard** — Handles the `adb pair` handshake so you never touch a terminal
+- **QR and pairing-code setup** — Scan a one-time QR code or use the 6-digit `adb pair` flow
 - **Device discovery** — Auto-scan the network for wireless debugging endpoints + manual rescan
 - **Full mirroring controls** — Resolution, bitrate, FPS, stay awake, turn screen off, always on top, touch indicators, audio toggle
 - **Live settings** — Apply supported options while a session is already running
@@ -95,10 +95,21 @@ Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
 ### 1. Pair your phone (first time only)
 
+In Flect, click **Generate Pairing QR Code**. On your phone, open *Wireless debugging → Pair device with QR code* and scan it. Flect detects the phone and completes pairing automatically.
+
+You can also use the pairing-code method:
+
 1. On your phone: *Wireless debugging → Pair device with pairing code*
-2. In Flect: open the **Pairing Wizard** tab
-3. Enter the IP, port, and 6-digit code shown on your phone
-4. Click **Pair Device**
+2. Enter the IP, port, and 6-digit code shown on your phone in Flect
+3. Click **Pair Device**
+
+Keep the phone's pairing-code dialog open until pairing finishes. Reopening it generates new details; update Flect before retrying. Pairing times out after 30 seconds, and the dashboard also stops waiting if the local server does not respond.
+
+**Ethernet and two routers:** A wired PC can pair with a Wi-Fi phone. The second router should normally use **Access Point/Bridge mode**, with guest/client isolation disabled for these devices. In Router mode, its separate subnet, NAT or firewall may block access from the main router's LAN. Both devices having internet access does not prove they can reach each other. As a quick check, connect the phone to the main router's Wi-Fi and retry with fresh pairing details.
+
+Automatic discovery uses mDNS and may not cross subnets. If discovery is empty, enter the phone's IP and ports manually; this still requires a working network route. See [Android's wireless ADB troubleshooting](https://developer.android.com/tools/adb#wireless-android11-command-line).
+
+QR pairing also relies on mDNS to find the phone after it scans the code. If the PC and phone are separated by two routers, use Access Point/Bridge mode or connect both to the main router for pairing.
 
 ### 2. Connect wirelessly
 
@@ -177,7 +188,8 @@ flect/
 ├── server.js            # Express API + ADB/scrcpy process manager
 ├── scripts/
 │   ├── update-scrcpy.js
-│   └── generate-brand-assets.js
+│   ├── generate-brand-assets.js
+│   └── release.js         # Validates and starts a release
 ├── run.bat              # Windows one-click launcher
 ├── scrcpy-win64/        # Bundled scrcpy + adb binaries
 ├── recordings/          # Session MP4s (gitignored)
@@ -202,6 +214,7 @@ npm run check
 ```
 
 See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full workflow, code guidelines, and issue templates.
+Maintainers can publish a tested version with `npm run release`; see **[RELEASING.md](RELEASING.md)**.
 
 <br>
 

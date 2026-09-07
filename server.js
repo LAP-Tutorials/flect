@@ -3,7 +3,10 @@ const { spawn, exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const crypto = require('node:crypto');
+const QRCode = require('qrcode');
 const { normalizePairingRequest, runAdbPair } = require('./lib/adb-pair');
+const { QR_PAIRING_TIMEOUT_MS, createQrPairingCredentials, findQrPairingEndpoint } = require('./lib/adb-qr');
 
 const app = express();
 const PORT = 3000;
@@ -27,6 +30,7 @@ let scrcpyProcess = null;
 let downloadProgress = { active: false, progress: 0, downloaded: 0, total: 0 };
 let eventClients = [];
 let logBuffer = [];
+let qrPairingSession = null;
 const deviceNameCachePath = path.join(__dirname, 'device-name-cache.json');
 let deviceNameCache = { byAdbId: {}, byHardwareId: {}, byHost: {} };
 const autoDiscoveryState = {
@@ -237,9 +241,9 @@ function parseMdnsServicesOutput(output) {
       };
     }
 
-    if (lower.includes('._adb-tls-connect._tcp')) {
+    if (lower.includes('_adb-tls-connect._tcp')) {
       byHost[ host ].connectEndpoint = endpoint;
-    } else if (lower.includes('._adb-tls-pairing._tcp')) {
+    } else if (lower.includes('_adb-tls-pairing._tcp')) {
       byHost[ host ].pairingEndpoint = endpoint;
     }
   }
@@ -394,6 +398,67 @@ function runShellCommand(command, options = {}) {
       });
     });
   });
+}
+
+function getPublicQrPairingSession(session = qrPairingSession, includeQrData = false) {
+  if (!session) return null;
+  return {
+    id: session.id,
+    status: session.status,
+    ...(includeQrData ? { qrDataUrl: session.qrDataUrl } : {}),
+    message: session.message,
+    startedAt: session.startedAt,
+    expiresAt: session.expiresAt,
+    endpoint: session.endpoint || null
+  };
+}
+
+async function runQrPairingSession(session) {
+  const paths = getPaths();
+  while (!session.cancelled && Date.now() < session.expiresAt) {
+    const mdns = await runShellCommand(`"${paths.adb}" mdns services`, { timeout: 6000 });
+    if (session.cancelled) return;
+
+    const endpoint = findQrPairingEndpoint(`${mdns.stdout}\n${mdns.stderr}`, session.serviceName);
+    if (endpoint) {
+      session.status = 'pairing';
+      session.endpoint = endpoint;
+      session.message = `Phone found at ${endpoint}. Completing secure pairing...`;
+      logMessage(`QR pairing phone discovered at ${endpoint}.`);
+      try {
+        const result = await runAdbPair({
+          adbPath: paths.adb,
+          cwd: paths.dir,
+          endpoint,
+          code: session.password,
+          timeoutMs: 30000,
+          onOutput: ({ stream, text }) => {
+            const cleanText = text.trim();
+            if (cleanText) logMessage(`adb QR pair${stream === 'stderr' ? ' error' : ''}: ${cleanText}`);
+          }
+        });
+        if (session.cancelled) return;
+        session.status = 'paired';
+        session.message = result.message || `Successfully paired to ${endpoint}`;
+        logMessage(`QR pairing completed for ${endpoint}.`);
+        refreshAutoDiscovery();
+      } catch (error) {
+        if (session.cancelled) return;
+        session.status = 'failed';
+        session.message = error.message || 'QR pairing failed.';
+        logMessage(`QR pairing failed for ${endpoint}: ${session.message}`);
+      }
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  if (!session.cancelled) {
+    session.status = 'expired';
+    session.message = 'QR pairing expired. Generate a new code and try again. If the phone is on another router, mDNS may not cross between the two networks.';
+    logMessage('QR pairing expired before the phone was discovered.');
+  }
 }
 
 function isScrcpyRunning() {
@@ -657,7 +722,66 @@ app.post('/api/kill-server', async (req, res) => {
   }
 });
 
-// ADB PAIR (Wireless Debugging Android 11+)
+// ADB QR PAIR (Wireless Debugging Android 11+)
+app.post('/api/pair/qr/start', async (req, res) => {
+  const paths = getPaths();
+  if (!paths.exists) {
+    return res.status(400).json({ success: false, error: 'Scrcpy or ADB is missing. Please install it first.' });
+  }
+
+  if (qrPairingSession && ['waiting', 'pairing'].includes(qrPairingSession.status)) {
+    qrPairingSession.cancelled = true;
+  }
+
+  const credentials = createQrPairingCredentials();
+  let qrDataUrl;
+  try {
+    qrDataUrl = await QRCode.toDataURL(credentials.payload, { width: 320, margin: 2, errorCorrectionLevel: 'M' });
+  } catch (error) {
+    logMessage(`Could not generate pairing QR code: ${error.message}`);
+    return res.status(500).json({ success: false, error: 'Could not generate the pairing QR code.' });
+  }
+
+  const now = Date.now();
+  const session = {
+    id: crypto.randomUUID(),
+    ...credentials,
+    qrDataUrl,
+    status: 'waiting',
+    message: 'Waiting for the phone to scan the QR code...',
+    startedAt: new Date(now).toISOString(),
+    expiresAt: now + QR_PAIRING_TIMEOUT_MS,
+    endpoint: null,
+    cancelled: false
+  };
+  qrPairingSession = session;
+  logMessage('Started a new QR pairing session.');
+  runQrPairingSession(session).catch((error) => {
+    if (session.cancelled) return;
+    session.status = 'failed';
+    session.message = error.message || 'QR pairing failed unexpectedly.';
+    logMessage(`QR pairing error: ${session.message}`);
+  });
+  return res.json({ success: true, session: getPublicQrPairingSession(session, true) });
+});
+
+app.get('/api/pair/qr/status', (req, res) => {
+  if (!qrPairingSession || req.query.id !== qrPairingSession.id) {
+    return res.status(404).json({ success: false, error: 'QR pairing session not found.' });
+  }
+  return res.json({ success: true, session: getPublicQrPairingSession() });
+});
+
+app.post('/api/pair/qr/cancel', (req, res) => {
+  if (qrPairingSession && (!req.body?.id || req.body.id === qrPairingSession.id)) {
+    qrPairingSession.cancelled = true;
+    qrPairingSession.status = 'cancelled';
+    qrPairingSession.message = 'QR pairing cancelled.';
+  }
+  return res.json({ success: true });
+});
+
+// ADB PAIRING CODE (Wireless Debugging Android 11+)
 app.post('/api/pair', async (req, res) => {
   let pairing;
   try {
@@ -894,7 +1018,6 @@ app.post('/api/start-scrcpy', async (req, res) => {
     exec(`explorer.exe "${batPath}"`, { cwd: paths.dir }, (err, stdout, stderr) => {
       if (err) {
         explorerError = String(stderr || err.message || '').trim();
-        logMessage(`Scrcpy desktop launcher reported an error: ${explorerError}`);
       } else {
         logMessage('Scrcpy process launched via the interactive Windows desktop.');
       }
@@ -922,7 +1045,7 @@ app.post('/api/start-scrcpy', async (req, res) => {
   }
 
   if (explorerError) {
-    logMessage('Scrcpy is running despite the Explorer return code; startup was verified by process state.');
+    logMessage('Scrcpy startup verified by process state (Explorer returned before confirming the launch).');
   }
 
   // Track active mirroring state and device so UI can show the actual mirrored target.

@@ -81,3 +81,5 @@ This project follows the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUC
 ## Questions
 
 Open a [GitHub Discussion](https://github.com/Llewellyn500/flect/discussions) or issue if you are unsure where to start — we are happy to help.
+
+Maintainers can follow the one-command process in [RELEASING.md](./RELEASING.md) to publish a tested, versioned Windows release.

@@ -23,6 +23,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const pairPort = document.getElementById('pairPort');
   const pairCode = document.getElementById('pairCode');
   const btnPair = document.getElementById('btnPair');
+  const btnQrPair = document.getElementById('btnQrPair');
+  const btnQrCancel = document.getElementById('btnQrCancel');
+  const qrPairingPanel = document.getElementById('qrPairingPanel');
+  const qrPairingImage = document.getElementById('qrPairingImage');
+  const qrPairingStatus = document.getElementById('qrPairingStatus');
   const connectIp = document.getElementById('connectIp');
   const connectPort = document.getElementById('connectPort');
   const btnConnectModern = document.getElementById('btnConnectModern');
@@ -83,6 +88,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let previewedDeviceId = null;
   let previewAutoAttemptedId = null;
   let previewObjectUrl = null;
+  let qrPairingSessionId = null;
+  let qrPairingPollTimer = null;
 
   // 0. TOAST NOTIFICATION SYSTEM
   const toastContainer = document.getElementById('toastContainer');
@@ -449,7 +456,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const firstNeedsPairing = items.find(i => i.status === 'needs_pairing' && i.pairingEndpoint);
-    if (firstNeedsPairing) {
+    // Never replace a manually entered endpoint or an in-progress pairing.
+    if (firstNeedsPairing && !pairIp.value && !pairPort.value && !pairCode.value && !btnPair.disabled) {
       const [ host, port ] = firstNeedsPairing.pairingEndpoint.split(':');
       pairIp.value = host || pairIp.value;
       pairPort.value = port || pairPort.value;
@@ -789,7 +797,97 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 7. PAIRING & CONNECTING API HANDLERS
+  function stopQrPairingPoll() {
+    clearTimeout(qrPairingPollTimer);
+    qrPairingPollTimer = null;
+  }
+
+  function renderQrPairingSession(session) {
+    qrPairingStatus.innerText = session.message;
+    qrPairingPanel.classList.toggle('is-success', session.status === 'paired');
+    qrPairingPanel.classList.toggle('is-error', ['failed', 'expired'].includes(session.status));
+
+    if (session.status === 'paired') {
+      stopQrPairingPoll();
+      btnQrPair.disabled = false;
+      btnQrPair.innerText = 'Generate Another QR Code';
+      btnQrCancel.classList.add('hidden');
+      showToast('Phone paired successfully. Flect is discovering its connection port.', 'success', { title: 'Device Paired', duration: 6500 });
+      refreshStatus();
+    } else if (['failed', 'expired', 'cancelled'].includes(session.status)) {
+      stopQrPairingPoll();
+      btnQrPair.disabled = false;
+      btnQrPair.innerText = 'Generate New Pairing QR Code';
+      btnQrCancel.classList.add('hidden');
+      if (session.status !== 'cancelled') {
+        showToast(session.message, 'error', { title: 'QR Pairing Failed', duration: 7000 });
+      }
+    }
+  }
+
+  async function pollQrPairingStatus() {
+    if (!qrPairingSessionId) return;
+    try {
+      const res = await fetch(`/api/pair/qr/status?id=${encodeURIComponent(qrPairingSessionId)}`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Could not read QR pairing status.');
+      if (data.session.id !== qrPairingSessionId) return;
+      renderQrPairingSession(data.session);
+      if (['waiting', 'pairing'].includes(data.session.status)) {
+        qrPairingPollTimer = setTimeout(pollQrPairingStatus, 1200);
+      }
+    } catch (error) {
+      stopQrPairingPoll();
+      btnQrPair.disabled = false;
+      btnQrPair.innerText = 'Generate New Pairing QR Code';
+      qrPairingStatus.innerText = error.message;
+      qrPairingPanel.classList.add('is-error');
+      showToast(error.message, 'error', { title: 'QR Pairing Error' });
+    }
+  }
+
+  btnQrPair.addEventListener('click', async () => {
+    if (btnQrPair.disabled) return;
+    stopQrPairingPoll();
+    btnQrPair.disabled = true;
+    btnQrPair.innerText = 'Generating...';
+    qrPairingPanel.classList.remove('is-success', 'is-error');
+    try {
+      const res = await fetch('/api/pair/qr/start', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Could not start QR pairing.');
+
+      qrPairingSessionId = data.session.id;
+      qrPairingImage.src = data.session.qrDataUrl;
+      qrPairingPanel.classList.remove('hidden');
+      btnQrCancel.classList.remove('hidden');
+      btnQrPair.innerText = 'QR Pairing Active';
+      renderQrPairingSession(data.session);
+      addTerminalLog('QR pairing started. Scan the code from the phone\'s Wireless debugging screen.', 'system');
+      qrPairingPollTimer = setTimeout(pollQrPairingStatus, 600);
+    } catch (error) {
+      btnQrPair.disabled = false;
+      btnQrPair.innerText = 'Generate Pairing QR Code';
+      showToast(error.message, 'error', { title: 'QR Pairing Error' });
+    }
+  });
+
+  btnQrCancel.addEventListener('click', async () => {
+    stopQrPairingPoll();
+    const id = qrPairingSessionId;
+    qrPairingSessionId = null;
+    await fetch('/api/pair/qr/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    }).catch(() => {});
+    qrPairingPanel.classList.add('hidden');
+    btnQrPair.disabled = false;
+    btnQrPair.innerText = 'Generate Pairing QR Code';
+  });
+
   btnPair.addEventListener('click', async () => {
+    if (btnPair.disabled) return;
     const ip = pairIp.value.trim();
     const port = pairPort.value.trim();
     const code = pairCode.value.trim();
@@ -799,6 +897,10 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    const controller = new AbortController();
+    // Allow the server's 30-second ADB timeout to report first, but also recover
+    // if the local server or the HTTP connection stops responding.
+    const requestTimeout = setTimeout(() => controller.abort(), 35000);
     try {
       btnPair.disabled = true;
       btnPair.innerText = 'Pairing...';
@@ -807,7 +909,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('/api/pair', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip, port, code })
+        body: JSON.stringify({ ip, port, code }),
+        signal: controller.signal
       });
       const data = await res.json();
 
@@ -822,9 +925,13 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast(data.error || 'Pairing failed. Check the IP, Port, and Pairing Code.', 'error', { title: 'Pairing Failed' });
       }
     } catch (e) {
-      addTerminalLog(`Pairing Error: ${e.message}`, 'error');
-      showToast(e.message, 'error', { title: 'Pairing Error' });
+      const message = e.name === 'AbortError'
+        ? 'Flect did not respond within 35 seconds. Check that Flect is still running, then retry with a fresh pairing code. Check the phone for a completed pairing before retrying.'
+        : e.message;
+      addTerminalLog(`Pairing Error: ${message}`, 'error');
+      showToast(message, 'error', { title: 'Pairing Error' });
     } finally {
+      clearTimeout(requestTimeout);
       btnPair.disabled = false;
       btnPair.innerText = 'Pair Device';
     }

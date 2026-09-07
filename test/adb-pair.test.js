@@ -101,3 +101,26 @@ test('terminates a pairing process that exceeds the timeout', async () => {
 
   assert.equal(stub.getChild().killed, true);
 });
+
+for (const stdout of ['Failed to pair: connection refused', 'Not paired to 192.168.8.123:40491', '']) {
+  test(`does not treat exit code zero as handshake success: ${stdout || '(empty)'}`, async () => {
+    const stub = createSpawnStub({ stdout, exitCode: 0 });
+    await assert.rejects(runAdbPair({
+      adbPath: 'adb.exe', endpoint: '192.168.8.123:40491', code: '997140',
+      spawnImpl: stub.spawnImpl
+    }), { code: 'PAIRING_FAILED' });
+  });
+}
+
+test('reports a process startup error without waiting for the timeout', async () => {
+  await assert.rejects(runAdbPair({
+    adbPath: 'adb.exe', endpoint: '192.168.8.123:40491', code: '997140',
+    spawnImpl: () => {
+      const child = new EventEmitter();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      process.nextTick(() => child.emit('error', new Error('ENOENT')));
+      return child;
+    }
+  }), /Could not start ADB: ENOENT/);
+});

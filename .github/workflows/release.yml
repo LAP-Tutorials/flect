@@ -1,50 +1,29 @@
 name: Release
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version from package.json (for example, 1.1.0)
+        required: true
+        type: string
+      prerelease:
+        description: Publish as a prerelease
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
-  windows-smoke:
-    name: Verify standard Windows compatibility
+  windows-release:
+    name: Test and publish Windows release
     runs-on: windows-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run checks and tests
-        run: |
-          npm run check
-          npm test
-
-      - name: Smoke-test bundled scrcpy and ADB
-        shell: pwsh
-        run: |
-          .\scrcpy-win64\scrcpy.exe --version
-          .\scrcpy-win64\adb.exe version
-
-  windows-zip:
-    name: Build Windows release zip
-    needs: windows-smoke
-    runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
@@ -61,74 +40,81 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run checks
+      - name: Validate requested version
+        id: meta
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          $version = $env:REQUESTED_VERSION.Trim().TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
+            throw "Version must look like 1.1.0 or 1.1.0-beta.1."
+          }
+
+          $packageVersion = node -p "require('./package.json').version"
+          if ($version -ne $packageVersion) {
+            throw "Requested version $version does not match package.json version $packageVersion."
+          }
+
+          $tag = "v$version"
+          $existingTag = git ls-remote --tags origin "refs/tags/$tag"
+          if ($existingTag) {
+            throw "Tag $tag already exists. Increase the package version before releasing."
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "asset=flect-v$version-windows.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Run checks and tests
         run: |
           npm run check
           npm test
 
-      - name: Prepare release metadata
-        id: meta
-        shell: bash
+      - name: Smoke-test bundled Windows runtime
+        shell: pwsh
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          SHORT_SHA="${GITHUB_SHA::7}"
-          BUILT_AT="$(date -u +'%Y-%m-%d %H:%M UTC')"
-          TAG="windows-${GITHUB_RUN_NUMBER}"
-          ASSET_NAME="flect-windows.zip"
+          .\scrcpy-win64\scrcpy.exe --version
+          .\scrcpy-win64\adb.exe version
 
-          {
-            echo "version=${VERSION}"
-            echo "tag=${TAG}"
-            echo "asset_name=${ASSET_NAME}"
-            echo "built_at=${BUILT_AT}"
-            echo "short_sha=${SHORT_SHA}"
-            echo "title=Flect for Windows - Build ${GITHUB_RUN_NUMBER}"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Create Windows zip
-        shell: bash
+      - name: Build release archive and checksum
+        shell: pwsh
         run: |
-          mkdir -p dist
-          git archive \
-            --format=zip \
-            --prefix="flect-windows/" \
-            --output="dist/${{ steps.meta.outputs.asset_name }}" \
-            HEAD
-          ls -lh "dist/${{ steps.meta.outputs.asset_name }}"
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          git archive --format=zip --prefix=flect-windows/ --output="dist/${{ steps.meta.outputs.asset }}" $env:GITHUB_SHA
+          $hash = (Get-FileHash "dist/${{ steps.meta.outputs.asset }}" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ${{ steps.meta.outputs.asset }}" | Set-Content "dist/${{ steps.meta.outputs.asset }}.sha256"
 
-      - name: Write release notes
-        shell: bash
+      - name: Write release introduction
+        shell: pwsh
         run: |
-          cat > release-notes.md <<'EOF'
-          ## Download Flect for Windows
+          @'
+          Download the Windows ZIP, extract it, then double-click `run.bat`.
 
-          Download `flect-windows.zip` from the assets below, extract it, then double-click `run.bat`.
+          The package contains Flect and the bundled scrcpy/ADB runtime. Node.js 18 or newer is required. It supports Windows 10/11 on x64 and Windows 11 on ARM64 through Windows x64 app emulation.
+          '@ | Set-Content release-introduction.md
 
-          This Windows package includes the Flect web dashboard, the one-click launcher, and bundled `scrcpy`/`adb` binaries. Node.js 18+ is still required; the launcher installs npm dependencies automatically on first run.
-
-          This build fixes wireless pairing and mirror-launch detection, and upgrades the bundled runtime to scrcpy 4.1 with SDL3 and ADB 37.0.0.
-
-          ## Requirements
-
-          - Windows 10/11 on x64, or Windows 11 on ARM64 with x64 app emulation
-          - Node.js 18 or newer
-          - Android 11+ with Wireless debugging enabled
-
-          ## Build
-
-          - Version: `${{ steps.meta.outputs.version }}`
-          - Source branch: `${{ github.ref_name }}`
-          - Source commit: `${{ steps.meta.outputs.short_sha }}`
-          - Built: `${{ steps.meta.outputs.built_at }}`
-          EOF
-
-      - name: Create GitHub release
+      - name: Publish GitHub release
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          IS_PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          gh release create "${{ steps.meta.outputs.tag }}" \
-            "dist/${{ steps.meta.outputs.asset_name }}#Flect Windows ZIP" \
-            --target "${{ github.sha }}" \
-            --title "${{ steps.meta.outputs.title }}" \
-            --notes-file release-notes.md \
-            --latest
+          $arguments = @(
+            'release', 'create', '${{ steps.meta.outputs.tag }}',
+            "dist/${{ steps.meta.outputs.asset }}#Flect Windows ZIP",
+            "dist/${{ steps.meta.outputs.asset }}.sha256#SHA-256 checksum",
+            '--target', $env:GITHUB_SHA,
+            '--title', 'Flect ${{ steps.meta.outputs.tag }}',
+            '--notes-file', 'release-introduction.md',
+            '--generate-notes',
+            '--fail-on-no-commits'
+          )
+
+          if ($env:IS_PRERELEASE -eq 'true') {
+            $arguments += @('--prerelease', '--latest=false')
+          } else {
+            $arguments += '--latest'
+          }
+
+          & gh @arguments

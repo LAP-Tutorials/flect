@@ -146,13 +146,28 @@
                 </div>
                 <div class="guide-step">
                   <span class="step-num">2</span>
-                  <p>Tap "Wireless debugging" & select <strong>"Pair device with pairing code"</strong>.</p>
+                  <p>Tap "Wireless debugging", then choose <strong>QR code</strong> or <strong>pairing code</strong> below.</p>
                 </div>
               </div>
 
-              <!-- Pairing Box -->
+              <!-- QR Pairing Box -->
               <fieldset class="wizard-fieldset">
-                <legend>Step 3: Pair Device</legend>
+                <legend>Pair with QR Code</legend>
+                <p class="fieldset-help">Generate a QR code, then on your phone tap <strong>Pair device with QR code</strong> and scan it. Flect will find and pair the phone automatically.</p>
+                <button id="btnQrPair" class="btn btn-secondary btn-block">Generate Pairing QR Code</button>
+                <div id="qrPairingPanel" class="qr-pairing-panel hidden" aria-live="polite">
+                  <div class="qr-code-frame">
+                    <img id="qrPairingImage" alt="One-time Android wireless debugging pairing QR code">
+                  </div>
+                  <p id="qrPairingStatus" class="qr-pairing-status">Waiting for the phone to scan...</p>
+                  <button id="btnQrCancel" class="btn btn-outline btn-sm">Cancel QR Pairing</button>
+                </div>
+              </fieldset>
+
+              <!-- Pairing Code Box -->
+              <fieldset class="wizard-fieldset">
+                <legend>Or Pair with a 6-Digit Code</legend>
+                <p class="fieldset-help">Keep the phone's pairing-code dialog open. Use the IP, port and code from that dialog. Wired PCs work too; both devices must be reachable on your local network.</p>
                 <div class="form-row">
                   <div class="form-group flex-2">
                     <label for="pairIp">Pairing IP Address</label>
